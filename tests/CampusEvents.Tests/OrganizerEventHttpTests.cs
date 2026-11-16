@@ -302,35 +302,35 @@ public class OrganizerEventHttpTests
 		Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, sentinel)));
 	}
 
-	[Theory]
-	[InlineData("foreign")]
-	[InlineData("published")]
-	[InlineData("cancelled")]
-	public async Task Edit_ForeignOrIneligibleEvent_DoesNotMutate(string kind)
-	{
-		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
-		using var host = CreateHost(database, FixedClock());
-		var (ownerId, otherId) = await AccountsAsync(host);
-		var category = await CategoryAsync(database);
-		var id = await EventAsync(database, category,
-			kind == "foreign" ? otherId : ownerId,
-			"Protected Original Event",
-			kind == "published" ? EventStatus.Published :
-			kind == "cancelled" ? EventStatus.Cancelled : EventStatus.Draft);
-		var snapshot = EventFields(await ReadEventAsync(database, id));
-		using var browser = Browser(host);
-		await SignInAsync(browser, OwnerEmail);
-		var get = await browser.GetAsync($"/Events/Edit/{id}");
-		Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
-		// A valid token comes from an authorized GET; the altered route cannot bypass the POST query.
-		var fields = ValidFields(category, await FormTokenAsync(browser, "/Events/Create"));
-		fields["Title"] = "Forged Update";
-		fields["OrganizerId"] = ownerId;
-		fields["Status"] = "Draft";
-		var post = await SendFormAsync(browser, $"/Events/Edit/{id}", fields);
-		Assert.Equal(HttpStatusCode.NotFound, post.StatusCode);
-		Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, id)));
-	}
+[Theory]
+[InlineData("foreign")]
+[InlineData("cancelled")]
+public async Task Edit_ForeignOrIneligibleEvent_DoesNotMutate(string kind)
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	using var host = CreateHost(database, FixedClock());
+	var (ownerId, otherId) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var id = await EventAsync(database, category, kind == "foreign" ? otherId : ownerId, "Protected Original Event",
+		kind == "cancelled" ? EventStatus.Cancelled : EventStatus.Draft);
+	var snapshot = EventFields(await ReadEventAsync(database, id));
+	using var browser = Browser(host);
+	await SignInAsync(browser, OwnerEmail);
+
+	var get = await browser.GetAsync($"/Events/Edit/{id}");
+	if (kind == "foreign") Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
+	else Assert.Equal("/Events/Manage", Location(get).AbsolutePath);
+
+	var fields = ValidFields(category, await FormTokenAsync(browser, "/Events/Create"));
+	fields["Title"] = "Forged Update";
+	fields["OrganizerId"] = ownerId;
+	fields["Status"] = "Draft";
+	var post = await SendFormAsync(browser, $"/Events/Edit/{id}", fields);
+	if (kind == "foreign") Assert.Equal(HttpStatusCode.NotFound, post.StatusCode);
+	else Assert.Equal("/Events/Manage", Location(post).AbsolutePath);
+
+	Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, id)));
+}
 
 	[Fact]
 	public async Task Edit_OwnedDraft_ValidAndInvalidPosts_PreserveBoundaries()
@@ -434,4 +434,326 @@ public class OrganizerEventHttpTests
 		Assert.Equal(ownedBefore, EventFields(await ReadEventAsync(database, ownedId)));
 		Assert.Equal(foreignBefore, EventFields(await ReadEventAsync(database, foreignId)));
 	}
+
+private static async Task SetStartAsync(IsolatedSqlServerDatabase database, int id, DateTime start)
+{
+	await using var db = database.CreateContext();
+	var item = await db.Events.SingleAsync(e => e.Id == id);
+	item.StartDateTime = start;
+	item.EndDateTime = start.AddHours(2);
+	await db.SaveChangesAsync();
+}
+
+private static async Task<HttpResponseMessage> CommandAsync(HttpClient browser, string path)
+{
+	var token = await FormTokenAsync(browser, "/Events/Create");
+	var fields = new Dictionary<string, string> { ["__RequestVerificationToken"] = token };
+	return await SendFormAsync(browser, path, fields);
+}
+
+[Fact]
+public async Task Publish_OwnedFutureDraft_UpdatesStateAndPublicDiscovery()
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	using var host = CreateHost(database, FixedClock());
+	var (ownerId, _) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var id = await EventAsync(database, category, ownerId, "Future Robotics Forum", EventStatus.Draft);
+	using var organizer = Browser(host);
+	using var visitor = Browser(host);
+	await SignInAsync(organizer, OwnerEmail);
+
+	var query = $"/Events?search=Robotics&categoryId={category}&pageSize=25";
+	var before = await visitor.GetAsync(query);
+	Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+	Assert.DoesNotContain("Future Robotics Forum", await before.Content.ReadAsStringAsync());
+
+	var publish = await CommandAsync(organizer, $"/Events/Publish/{id}");
+	Assert.Equal("/Events/Manage", Location(publish).AbsolutePath);
+	Assert.Equal(EventStatus.Published, (await ReadEventAsync(database, id)).Status);
+	var published = await visitor.GetAsync(query);
+	Assert.Equal(HttpStatusCode.OK, published.StatusCode);
+	Assert.Contains("Future Robotics Forum", await published.Content.ReadAsStringAsync());
+
+	var cancel = await CommandAsync(organizer, $"/Events/Cancel/{id}");
+	Assert.Equal("/Events/Manage", Location(cancel).AbsolutePath);
+	Assert.Equal(EventStatus.Cancelled, (await ReadEventAsync(database, id)).Status);
+	var absent = await visitor.GetAsync(query);
+	Assert.Equal(HttpStatusCode.OK, absent.StatusCode);
+	Assert.DoesNotContain("Future Robotics Forum", await absent.Content.ReadAsStringAsync());
+	var details = await visitor.GetAsync($"/Events/Details/{id}");
+	Assert.Equal(HttpStatusCode.OK, details.StatusCode);
+	Assert.Contains("This Event has been cancelled", await details.Content.ReadAsStringAsync());
+}
+
+[Theory]
+[InlineData("published")]
+[InlineData("cancelled")]
+[InlineData("at-start")]
+[InlineData("past-start")]
+public async Task Publish_RejectedStatesOrTimes_NeverWrite(string reason)
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	var clock = FixedClock();
+	using var host = CreateHost(database, clock);
+	var (ownerId, _) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var status = reason switch
+	{
+		"published" => EventStatus.Published,
+		"cancelled" => EventStatus.Cancelled,
+		_ => EventStatus.Draft
+	};
+	var id = await EventAsync(database, category, ownerId, "Guarded Event", status);
+	var now = clock.GetLocalNow().DateTime;
+	if (reason == "at-start") await SetStartAsync(database, id, now);
+	if (reason == "past-start") await SetStartAsync(database, id, now.AddMinutes(-1));
+	var snapshot = EventFields(await ReadEventAsync(database, id));
+	using var browser = Browser(host);
+	await SignInAsync(browser, OwnerEmail);
+
+	var response = await CommandAsync(browser, $"/Events/Publish/{id}");
+	Assert.Equal("/Events/Manage", Location(response).AbsolutePath);
+	Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, id)));
+	var feedback = await browser.GetAsync("/Events/Manage");
+	Assert.Contains("error-message", await feedback.Content.ReadAsStringAsync());
+}
+
+[Theory]
+[InlineData("draft")]
+[InlineData("cancelled")]
+[InlineData("at-start")]
+[InlineData("past-start")]
+public async Task Cancel_RefusesIneligibleStateOrStart(string reason)
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	var clock = FixedClock();
+	using var host = CreateHost(database, clock);
+	var (ownerId, _) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var status = reason switch
+	{
+		"draft" => EventStatus.Draft,
+		"cancelled" => EventStatus.Cancelled,
+		_ => EventStatus.Published
+	};
+	var id = await EventAsync(database, category, ownerId, "Guarded Cancel", status);
+	var now = clock.GetLocalNow().DateTime;
+	if (reason == "at-start") await SetStartAsync(database, id, now);
+	if (reason == "past-start") await SetStartAsync(database, id, now.AddMinutes(-1));
+	var snapshot = EventFields(await ReadEventAsync(database, id));
+	using var browser = Browser(host);
+	await SignInAsync(browser, OwnerEmail);
+
+	Assert.Equal("/Events/Manage", Location(await CommandAsync(browser, $"/Events/Cancel/{id}")).AbsolutePath);
+	Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, id)));
+	var feedback = await browser.GetAsync("/Events/Manage");
+	Assert.Contains("error-message", await feedback.Content.ReadAsStringAsync());
+}
+
+[Fact]
+public async Task Delete_ConfirmationGetIsSafe_AndPostDeletesDraft()
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	using var host = CreateHost(database, FixedClock());
+	var (ownerId, _) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var id = await EventAsync(database, category, ownerId, "Disposable Draft", EventStatus.Draft);
+	var snapshot = EventFields(await ReadEventAsync(database, id));
+	using var browser = Browser(host);
+	await SignInAsync(browser, OwnerEmail);
+
+	var confirmation = await browser.GetAsync($"/Events/Delete/{id}");
+	Assert.Equal(HttpStatusCode.OK, confirmation.StatusCode);
+	Assert.Contains("Permanently Delete Draft", await confirmation.Content.ReadAsStringAsync());
+	Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, id)));
+	var safeGet = await browser.GetAsync($"/Events/DeleteConfirmed/{id}");
+	Assert.Equal(HttpStatusCode.NotFound, safeGet.StatusCode);
+	Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, id)));
+
+	Assert.Equal("/Events/Manage", Location(await CommandAsync(browser, $"/Events/DeleteConfirmed/{id}")).AbsolutePath);
+	await using var verify = database.CreateContext();
+	Assert.False(await verify.Events.AnyAsync(e => e.Id == id));
+}
+
+[Theory]
+[InlineData("published")]
+[InlineData("cancelled")]
+[InlineData("foreign")]
+public async Task Delete_RefusesPublishedCancelledAndForeign(string reason)
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	using var host = CreateHost(database, FixedClock());
+	var (ownerId, otherId) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var id = await EventAsync(database, category, reason == "foreign" ? otherId : ownerId,
+		"Retained Event", reason == "published" ? EventStatus.Published :
+		reason == "cancelled" ? EventStatus.Cancelled : EventStatus.Draft);
+	var snapshot = EventFields(await ReadEventAsync(database, id));
+	using var browser = Browser(host);
+	await SignInAsync(browser, OwnerEmail);
+
+	Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync($"/Events/Delete/{id}")).StatusCode);
+	var response = await CommandAsync(browser, $"/Events/DeleteConfirmed/{id}");
+	if (reason == "foreign") Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+	else Assert.Equal("/Events/Manage", Location(response).AbsolutePath);
+	Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, id)));
+}
+
+[Fact]
+public async Task Edit_Published_ValidAndInvalidChanges()
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	using var host = CreateHost(database, FixedClock());
+	var (ownerId, otherId) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var id = await EventAsync(database, category, ownerId, "Original Published", EventStatus.Published);
+	var created = (await ReadEventAsync(database, id)).CreatedAt;
+	using var browser = Browser(host);
+	await SignInAsync(browser, OwnerEmail);
+	var token = await FormTokenAsync(browser, $"/Events/Edit/{id}");
+	var fields = ValidFields(category, token);
+	fields["Title"] = "Revised Published Event";
+	fields["OrganizerId"] = otherId;
+	fields["Status"] = "Cancelled";
+	fields["CreatedAt"] = "2000-01-01T00:00:00";
+
+	Assert.Equal("/Events/Manage", Location(await SendFormAsync(browser, $"/Events/Edit/{id}", fields)).AbsolutePath);
+	var saved = await ReadEventAsync(database, id);
+	Assert.Equal("Revised Published Event", saved.Title);
+	Assert.Equal("Hands-on lab", saved.Description);
+	Assert.Equal(category, saved.CategoryId);
+	Assert.Equal("Engineering Hall", saved.Location);
+	Assert.Equal(new DateTime(2026, 5, 8, 10, 0, 0), saved.StartDateTime);
+	Assert.Equal(new DateTime(2026, 5, 8, 12, 0, 0), saved.EndDateTime);
+	Assert.Equal(40, saved.Capacity);
+	Assert.Equal(ownerId, saved.OrganizerId);
+	Assert.Equal(EventStatus.Published, saved.Status);
+	Assert.Equal(created, saved.CreatedAt);
+
+	fields["CategoryId"] = "999999";
+	fields["Title"] = "Not Saved";
+	var invalid = await SendFormAsync(browser, $"/Events/Edit/{id}", fields);
+	Assert.Equal(HttpStatusCode.OK, invalid.StatusCode);
+	var html = await invalid.Content.ReadAsStringAsync();
+	Assert.Contains("Select an existing Category", html);
+	Assert.Equal(EventFields(saved), EventFields(await ReadEventAsync(database, id)));
+}
+
+[Fact]
+public async Task Edit_CancelledIsRefused()
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	using var host = CreateHost(database, FixedClock());
+	var (ownerId, _) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var id = await EventAsync(database, category, ownerId, "Frozen Cancelled", EventStatus.Cancelled);
+	var snapshot = EventFields(await ReadEventAsync(database, id));
+	using var browser = Browser(host);
+	await SignInAsync(browser, OwnerEmail);
+
+	Assert.Equal("/Events/Manage", Location(await browser.GetAsync($"/Events/Edit/{id}")).AbsolutePath);
+	var fields = ValidFields(category, await FormTokenAsync(browser, "/Events/Create"));
+	Assert.Equal("/Events/Manage", Location(await SendFormAsync(browser, $"/Events/Edit/{id}", fields)).AbsolutePath);
+	Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, id)));
+}
+
+[Theory]
+[InlineData("Publish")]
+[InlineData("Cancel")]
+[InlineData("DeleteConfirmed")]
+[InlineData("Edit")]
+public async Task LifecyclePosts_RequireRoleAndAntiforgery(string action)
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	using var host = CreateHost(database, FixedClock());
+	var (ownerId, _) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var id = await EventAsync(database, category, ownerId, "Protected Draft", EventStatus.Draft);
+	var snapshot = EventFields(await ReadEventAsync(database, id));
+	var path = $"/Events/{action}/{id}";
+
+	using var anonymous = Browser(host);
+	var anonymousResponse = await anonymous.PostAsync(path, new FormUrlEncodedContent(new Dictionary<string, string>()));
+	Assert.Equal("/Account/Login", Location(anonymousResponse).AbsolutePath);
+
+	using var participant = Browser(host);
+	await SignInAsync(participant, ParticipantEmail);
+	var participantToken = await FormTokenAsync(participant, "/Participant");
+	var fields = new Dictionary<string, string> { ["__RequestVerificationToken"] = participantToken };
+	var forbidden = await SendFormAsync(participant, path, fields);
+	Assert.Equal("/Account/AccessDenied", Location(forbidden).AbsolutePath);
+
+	using var organizer = Browser(host);
+	await SignInAsync(organizer, OwnerEmail);
+	var noToken = await organizer.PostAsync(path, new FormUrlEncodedContent(new Dictionary<string, string>()));
+	Assert.Equal(HttpStatusCode.BadRequest, noToken.StatusCode);
+	Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, id)));
+}
+
+[Theory]
+[InlineData("Publish")]
+[InlineData("Cancel")]
+public async Task Lifecycle_ForeignOwnerCannotMutate(string action)
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	using var host = CreateHost(database, FixedClock());
+	var (_, otherId) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var status = action == "Publish" ? EventStatus.Draft : EventStatus.Published;
+	var id = await EventAsync(database, category, otherId, "Other Organizer Event", status);
+	var snapshot = EventFields(await ReadEventAsync(database, id));
+	using var browser = Browser(host);
+	await SignInAsync(browser, OwnerEmail);
+
+	var result = await CommandAsync(browser, $"/Events/{action}/{id}");
+	Assert.Equal(HttpStatusCode.NotFound, result.StatusCode);
+	Assert.Equal(snapshot, EventFields(await ReadEventAsync(database, id)));
+}
+
+[Theory]
+[InlineData(-1)]
+[InlineData(0)]
+[InlineData(1)]
+public async Task Publish_OneSecondBoundary_UsesStrictFutureRule(int seconds)
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	var clock = FixedClock();
+	using var host = CreateHost(database, clock);
+	var (ownerId, _) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var id = await EventAsync(database, category, ownerId, "Boundary Draft", EventStatus.Draft);
+	await SetStartAsync(database, id, clock.GetLocalNow().DateTime.AddSeconds(seconds));
+	var before = EventFields(await ReadEventAsync(database, id));
+	using var browser = Browser(host);
+	await SignInAsync(browser, OwnerEmail);
+	Assert.Equal("/Events/Manage", Location(await CommandAsync(browser, $"/Events/Publish/{id}")).AbsolutePath);
+	var after = await ReadEventAsync(database, id);
+	if (seconds <= 0) Assert.Equal(before, EventFields(after));
+	else Assert.Equal(EventStatus.Published, after.Status);
+}
+
+[Theory]
+[InlineData("Publish")]
+[InlineData("Cancel")]
+[InlineData("DeleteConfirmed")]
+[InlineData("Edit")]
+public async Task Lifecycle_ForgedRouteAndFields_PreserveForeignEvent(string action)
+{
+	await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+	using var host = CreateHost(database, FixedClock());
+	var (_, otherId) = await AccountsAsync(host);
+	var category = await CategoryAsync(database);
+	var id = await EventAsync(database, category, otherId, "Foreign Target",
+		action == "Cancel" ? EventStatus.Published : EventStatus.Draft);
+	var before = EventFields(await ReadEventAsync(database, id));
+	using var browser = Browser(host);
+	await SignInAsync(browser, OwnerEmail);
+	var fields = ValidFields(category, await FormTokenAsync(browser, "/Events/Create"));
+	fields["OrganizerId"] = otherId;
+	fields["Status"] = "Published";
+	using var response = await SendFormAsync(browser, $"/Events/{action}/{id}", fields);
+	Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+	Assert.Equal(before, EventFields(await ReadEventAsync(database, id)));
+}
 }

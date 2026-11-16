@@ -114,3 +114,8 @@ server-side validation, ownership checks and protected server-assigned fields.
 Its required evidence and exercises are in
 [docs/requisitos-leccion-05.md](docs/requisitos-leccion-05.md) and
 [docs/ejercicios-leccion-05.md](docs/ejercicios-leccion-05.md).
+
+Lesson 6 adds guarded Publish/Cancel, Draft deletion confirmation, Published
+Edit and direct Cancelled Details. Evidence and required exercises are in
+[docs/requisitos-leccion-06.md](docs/requisitos-leccion-06.md) and
+[docs/ejercicios-leccion-06.md](docs/ejercicios-leccion-06.md).

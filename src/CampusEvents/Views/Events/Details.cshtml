@@ -9,6 +9,13 @@
 		<h1>@Model.Title</h1>
 	</header>
 
+	@if (Model.Status == CampusEvents.Models.EventStatus.Cancelled)
+{
+	<p class="error-message" role="status">
+		This Event has been cancelled.
+	</p>
+}
+
 	<p>@Model.Description</p>
 
 	<dl class="event-detail-facts">
