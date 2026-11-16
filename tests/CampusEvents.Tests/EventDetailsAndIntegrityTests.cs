@@ -24,7 +24,7 @@ public class EventDetailsAndIntegrityTests
         }
 
         await using var verify = database.CreateContext();
-        var controller = new EventsController(NullLogger<EventsController>.Instance, verify, new FakeTimeProvider())
+        var controller = new EventsController(NullLogger<EventsController>.Instance, verify, new FakeTimeProvider(), null!)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

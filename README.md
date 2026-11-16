@@ -30,6 +30,15 @@ dotnet ef database update --project src/CampusEvents --startup-project src/Campu
 part of normal setup. The Development initializer adds missing sample rows;
 it preserves existing sample IDs, dates and values. It is not run in Production.
 
+Lesson 4 adds the `AddIdentityAuthentication` migration. Apply pending migrations
+with the same database-update command before starting the upgraded application.
+Development startup also requires these four keys in the existing User Secrets
+store: `SeedAccounts:Administrator:Email`, `SeedAccounts:Administrator:Password`,
+`SeedAccounts:Organizer:Email` and `SeedAccounts:Organizer:Password`. Configure
+different emails and strong unique passwords outside tracked files. Passwords
+must satisfy the configured minimum of eight characters, uppercase/lowercase
+letters and a digit. Do not copy classroom credentials into source control.
+
 The host must use the institution-approved campus time zone. This local run used
 `SA Western Standard Time` (UTC-04); no institution-wide policy is assumed.
 Stored `DateTime` values represent local wall-clock times. Tests use an explicit
@@ -71,6 +80,14 @@ form restarts at page 1, and Clear preserves page size. Invalid explicit page
 sizes return an explanatory HTML 400. Draft, Cancelled and missing Details
 requests retain the inherited HTML 404 behavior.
 
+Register and Login are available to anonymous visitors. Registration returns
+to Events with confirmation and does not sign in automatically. `/Participant`
+requires authentication and displays the signed-in account name. Logout is an
+antiforgery-protected POST. Organizer and Administrator memberships are seeded
+only in Development; every authenticated account has Participant access without
+a separate Participant role. The Organizer-only probe exists in the test
+assembly, not as a production application feature.
+
 Development seeds three Categories, one organizer and the five lesson sample
 Events. The seed exercise adds a sixth row, Study Skills Workshop, so a fresh
 dataset has three public upcoming Events. Configured capacity is displayed;
@@ -87,3 +104,13 @@ The required exercise diagram and explanations are in
 Lesson 3 results, dataset boundaries and the commit reference are recorded in
 [docs/requisitos-leccion-03.md](docs/requisitos-leccion-03.md). Its exercise
 deliverables are in [docs/ejercicios-leccion-03.md](docs/ejercicios-leccion-03.md).
+
+Lesson 4 evidence and exercise deliverables are in
+[docs/requisitos-leccion-04.md](docs/requisitos-leccion-04.md) and
+[docs/ejercicios-leccion-04.md](docs/ejercicios-leccion-04.md).
+
+Lesson 5 adds Organizer-only Manage, Create and owned-Draft Edit forms with
+server-side validation, ownership checks and protected server-assigned fields.
+Its required evidence and exercises are in
+[docs/requisitos-leccion-05.md](docs/requisitos-leccion-05.md) and
+[docs/ejercicios-leccion-05.md](docs/ejercicios-leccion-05.md).
