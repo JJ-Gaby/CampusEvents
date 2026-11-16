@@ -5,14 +5,40 @@ Course Project #1 — server-rendered ASP.NET Core MVC application.
 ## Prerequisites
 
 - .NET 10.x SDK
+- SQL Server Express LocalDB on Windows (`(localdb)\MSSQLLocalDB`), or an approved SQL Server endpoint.
 
 ## Run from the solution folder
 
 ```cmd
+dotnet tool restore
+dotnet restore
 dotnet build
 dotnet test
 dotnet run --project src/CampusEvents
 ```
+
+Before running for the first time, configure the Development connection outside
+tracked files and apply the existing migration:
+
+```cmd
+dotnet user-secrets init --project src/CampusEvents
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=(localdb)\MSSQLLocalDB;Database=CampusEventsDb;Trusted_Connection=True" --project src/CampusEvents
+dotnet ef database update --project src/CampusEvents --startup-project src/CampusEvents -- --environment Development
+```
+
+`dotnet-ef` and EF Core use version 10.0.13. Never reset an existing database as
+part of normal setup. The Development initializer adds missing sample rows;
+it preserves existing sample IDs, dates and values. It is not run in Production.
+
+The host must use the institution-approved campus time zone. This local run used
+`SA Western Standard Time` (UTC-04); no institution-wide policy is assumed.
+Stored `DateTime` values represent local wall-clock times. Tests use an explicit
+fixed UTC-04 clock, independently of the machine clock.
+
+Tests create separate `CemsL02Test_<GUID>` databases from the real migration and
+delete only their own databases. The default test endpoint is LocalDB/master;
+an authorized alternate test server can be configured with `CEMS_TEST_SQLSERVER`
+targeting `master`. Tests never use the application's `DefaultConnection`.
 
 If you want to use HTTPS run:
 
@@ -36,4 +62,17 @@ Open the URL printed by the application and select Events.
 
 ## Current scope
 
-The application serves Home, Privacy, and Events pages through MVC, with shared navigation, project-owned CSS, and a controller-provided event title. It also includes an xUnit test project.
+The application serves Home, Privacy, a persisted public Events catalog and
+Published Event Details through MVC, with shared navigation and project-owned
+CSS. The catalog selects only Published future Events, ordered by start time
+and ID. Draft, Cancelled and missing Details requests return an HTML 404.
+
+Development seeds three Categories, one organizer and the five lesson sample
+Events. The seed exercise adds a sixth row, Study Skills Workshop, so a fresh
+dataset has three public upcoming Events. Configured capacity is displayed;
+remaining registration availability, search, filtering, pagination and
+Cancelled direct-link visibility are deferred as the lesson specifies.
+
+Verification evidence is recorded in [docs/traceability.md](docs/traceability.md).
+The required exercise diagram and explanations are in
+[docs/lesson02-exercises.md](docs/lesson02-exercises.md).
