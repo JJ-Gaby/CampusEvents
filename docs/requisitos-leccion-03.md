@@ -2,8 +2,8 @@
 
 Date: 2026-11-15, America/La_Paz.
 Commit reference: `lesson-03`, subject `Lesson 03: Implemented and Verified`.
-Previous checkpoint: `76ec750` (Lesson 02). No GitHub push is part of this lesson.
-Lesson 2's working record is retained as `docs/lesson-02-traceability.md`.
+Previous checkpoint: `76ec750` (Lesson 02).
+Lesson 2's working record is retained as `docs/requisitos-leccion-02.md`.
 
 | Requirement / Reference | Implementation / Artifact | Verification / Evidence | Status | Notes |
 | --- | --- | --- | --- | --- |
@@ -110,7 +110,7 @@ and return links worked with Enter. Invalid Page Size HTML was readable on
 mobile. Styles came from `/css/site.css`; no CSS/JavaScript framework was added.
 
 The uncommitted tie-order/Next-link experiment and independent test are
-documented in `docs/lesson03-exercises.md`, together with the required retrieval
+documented in `docs/ejercicios-leccion-03.md`, together with the required retrieval
 diagram and offset/keyset decision record. Restored Next was rechecked in the
 browser: `pageSize=25&page=2`, 25 cards, Showing 26–50 of 52 events.
 

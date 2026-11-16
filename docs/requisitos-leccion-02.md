@@ -95,9 +95,9 @@ in exact-owned disposable databases, not by resetting the normal Development DB.
 The temporary Published-predicate removal produced the expected focused-test
 failure (Draft Planning and Cancelled Mixer leaked into the result). The
 predicate was restored before the final passing suite. The exercise diagram,
-before/after explanation and test boundaries are in `docs/lesson02-exercises.md`.
+before/after explanation and test boundaries are in `docs/ejercicios-leccion-02.md`.
 
 Search, pagination, Category-name uniqueness, registration availability,
 Cancelled direct-link visibility, authentication and deployment remain deferred
 exactly as this lesson describes. External deployment and a second browser
-were not verified. No commit, staging or push was performed for Lesson 2.
+were not verified.

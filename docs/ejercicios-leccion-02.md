@@ -96,4 +96,4 @@ disposes contexts, releases its own connection pool and drops its exact owned
 database. It never reads or drops the Development application database.
 
 Final execution: 8 passed, 0 failed, 0 skipped. See traceability for environment
-and manual observations. Source changes remain local; no commit or push was made.
+and manual observations.

@@ -80,10 +80,10 @@ schema, migrations or permanent Development seed definitions. Its 52 pagination
 practice Events were inserted and removed only in a separate private database;
 they are not part of normal startup.
 
-Verification evidence is recorded in [docs/lesson-02-traceability.md](docs/lesson-02-traceability.md).
+Verification evidence is recorded in [docs/requisitos-leccion-02.md](docs/requisitos-leccion-02.md).
 The required exercise diagram and explanations are in
-[docs/lesson02-exercises.md](docs/lesson02-exercises.md).
+[docs/ejercicios-leccion-02.md](docs/ejercicios-leccion-02.md).
 
 Lesson 3 results, dataset boundaries and the commit reference are recorded in
-[docs/lesson-03-traceability.md](docs/lesson-03-traceability.md). Its exercise
-deliverables are in [docs/lesson03-exercises.md](docs/lesson03-exercises.md).
+[docs/requisitos-leccion-03.md](docs/requisitos-leccion-03.md). Its exercise
+deliverables are in [docs/ejercicios-leccion-03.md](docs/ejercicios-leccion-03.md).

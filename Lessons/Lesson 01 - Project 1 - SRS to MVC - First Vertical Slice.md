@@ -1,306 +1,820 @@
-# Lesson 1 — SRS, MVC, and the First Vertical Slice
+# **Project — Campus Events**
+## **Lesson 1 — SRS to MVC: First Vertical Slice**
 
-Project #1 is the **Campus Events Management System (CEMS)**. Across the project, you will grow one ASP.NET Core application from a small MVC shell into a working campus-events system.
+Revision: 2026.10.25.10
 
-This lesson begins before any CEMS application exists. You will start with the product requirements, create an ASP.NET Core MVC project, and build the first real vertical slice of the application: a browser request to `/Events` will reach a controller action, pass a value to a Razor View, and return rendered HTML.
+# Table of Contents
 
-The goal is not to build the full event catalog yet. The goal is to understand the path a request follows through a server-rendered MVC application so that later features have a foundation you can reason about.
+- [Review of Last Lesson](#review-of-last-lesson)
+- [Learning Objectives](#learning-objectives)
+- [SRS Requirements and Use Cases](#srs-requirements-and-use-cases)
+- [Guided Feature Preview](#guided-feature-preview)
+- [Guided Design and Coding](#guided-design-and-coding)
+	- [Install Visual Studio Code and C# extensions](#install-visual-studio-code-and-c-extensions)
+	- [Check the installed .NET SDK](#check-the-installed-net-sdk)
+	- [Create the MVC project](#create-the-mvc-project)
+	- [Tour the generated solution files](#tour-the-generated-solution-files)
+	- [Remove unused frontend frameworks](#remove-unused-frontend-frameworks)
+	- [Implement the first Events vertical slice](#implement-the-first-events-vertical-slice)
+		- [Create the Events controller without a model](#create-the-events-controller-without-a-model)
+		- [Render a static Events view](#render-a-static-events-view)
+		- [Move the temporary title into the controller](#move-the-temporary-title-into-the-controller)
+		- [Add Events link to the shared navigation](#add-events-link-to-the-shared-navigation)
+		- [Trace the request and make a bounded change](#trace-the-request-and-make-a-bounded-change)
+	- [Document and commit the working MVC slice](#document-and-commit-the-working-mvc-slice)
+- [Guided Discussion](#guided-discussion)
+	- [Server-rendered pages and the HTTP contract](#server-rendered-pages-and-the-http-contract)
+	- [Application startup and composition root](#application-startup-and-composition-root)
+		- [Service registration and dependency injection](#service-registration-and-dependency-injection)
+		- [Middleware and the request pipeline](#middleware-and-the-request-pipeline)
+		- [Route-to-endpoint mapping](#route-to-endpoint-mapping)
+	- [Routing, endpoints, and rendering](#routing-endpoints-and-rendering)
+	- [Semantic HTML, styling, and accessibility](#semantic-html-styling-and-accessibility)
+	- [Verification, validation, and reproducible evidence](#verification-validation-and-reproducible-evidence)
+- [Guided Verification and Validation](#guided-verification-and-validation)
+	- [Automated](#automated)
+		- [Test — `Index_ReturnsViewWithExpectedTemporaryTitle`](#test--index_returnsviewwithexpectedtemporarytitle)
+	- [Manual](#manual)
+	- [SRS Traceability Matrix Update with Evidence](#srs-traceability-matrix-update-with-evidence)
+- [Guided Exercises](#guided-exercises)
+	- [Exercise: independently trace another page](#exercise-independently-trace-another-page)
+	- [Exercise: diagnose a contract failure](#exercise-diagnose-a-contract-failure)
+	- [Exercise: challenge a test assertion](#exercise-challenge-a-test-assertion)
+- [Troubleshooting Common Problems](#troubleshooting-common-problems)
+- [Checking Your Understanding](#checking-your-understanding)
+- [Summary](#summary)
+- [Checkpoint](#checkpoint)
+- [Next Lesson Preview](#next-lesson-preview)
+- [Appendix](#appendix)
+	- [From requirements to design decisions](#from-requirements-to-design-decisions)
+	- [Rendering and navigation strategies](#rendering-and-navigation-strategies)
+		- [Where page markup is produced](#where-page-markup-is-produced)
+		- [When HTML is generated and refreshed](#when-html-is-generated-and-refreshed)
+		- [How visitors move between pages](#how-visitors-move-between-pages)
+		- [How interactivity reaches the browser](#how-interactivity-reaches-the-browser)
+		- [Choosing compatible techniques](#choosing-compatible-techniques)
 
-Lesson 1 therefore concentrates on one small but complete idea:
+# Review of Last Lesson
 
-```text
-browser request
-    ↓
-ASP.NET Core request pipeline
-    ↓
-routing
-    ↓
-controller action
-    ↓
-server-side value
-    ↓
-Razor View
-    ↓
-rendered HTML response
-```
+The starting point is the approved **Campus Events Management System (CEMS) Software Requirements Specification (SRS)** from Lesson 0. That specification describes the intended product, its user roles, business rules, system qualities, and imposed technology constraints. It establishes *what the finished application must do* without prescribing its complete design or implementation.
 
-You will see several ASP.NET Core mechanisms around that flow—service registration, dependency injection, middleware, routing, View selection, Tag Helpers, and configuration. They are related, but they are not interchangeable. A major goal of this lesson is to give each mechanism a clear place in your mental model before later lessons add databases, authentication, validation, and authorization.
+You will turn that requirements baseline into the first executable architectural slice from scratch. You will build an executable request/response path that connects browser navigation, controller-supplied data, Razor rendering, and HTML output.
 
-## What You Will Build
+# Learning Objectives
 
-By the end of this lesson, your application will have:
+By the end of the lesson, you should be able to:
 
-- an ASP.NET Core MVC project named `CampusEvents`;
-- a working conventional MVC route;
-- an `EventsController` with an `Index()` action;
-- a Razor View at `Views/Events/Index.cshtml`;
-- one temporary event title passed from the controller to the View;
-- an **Events** link in the shared navigation;
-- logging that helps you see when the controller action runs;
-- a Git repository with a standard .NET `.gitignore`;
-- a final temporary event title of **Library Research Night**.
+1. **Classify** product requirements, imposed design constraints, and discretionary implementation decisions, and explain how each influences design.
+2. **Trace** a browser request through routing, application logic, presentation, and the HTTP response while distinguishing the responsibilities of each stage.
+3. **Explain and apply** separation of concerns and dependency injection to keep request handling, presentation, and supporting services independently understandable.
+4. **Design and evaluate** a small end-to-end software slice whose input, processing path, output, and component contracts are observable.
+5. **Compare** automated component checks with manual end-to-end observation, and identify what each can and cannot establish.
+6. **Investigate** failures systematically using observable symptoms, request traces, diagnostics, and controlled changes.
+7. **Apply** reproducible project organization, safe configuration management, and version-control practices to make development states secure, reviewable, and traceable.
+8. **Evaluate** a simple interface using semantic structure, accessible interaction, and responsive presentation principles.
 
-No database is involved yet. The Events page is a real MVC page, but its data is temporary server-side data rather than persisted CEMS data.
+These objectives concern engineering skills you can apply regardless of language, framework, or platform. The specific tools used below provide a concrete environment in which to practice them.
 
-## What You Will Learn
+# SRS Requirements and Use Cases
 
-After completing this lesson, you should be able to:
+CEMS is a web application for campus Event discovery, registration, Organizer management, and Administration. The SRS is authoritative for required behavior; code examples presented here are only one way to implement it. For additional context on how the SRS requirements inform this and future lessons, see [Appendix: From requirements to design decisions](#from-requirements-to-design-decisions) in the appendix.
 
-1. explain the purpose of a Software Requirements Specification;
-2. distinguish required product behavior from implementation choices;
-3. describe a server-rendered multi-page application;
-4. trace an HTTP GET request through routing, a controller action, a Razor View, and an HTML response;
-5. identify the ASP.NET Core MVC project files that matter to this first request flow;
-6. explain service registration, middleware, and dependency injection at an introductory level;
-7. pass a simple value from a controller to a Razor View;
-8. use conventional routing and MVC Tag Helpers to navigate to `/Events`;
-9. use logging or a breakpoint to observe request execution;
-10. make a small controller-side change and predict how it affects the rendered page;
-11. distinguish service registration, dependency injection, middleware, routing, and endpoint execution at an introductory level;
-12. distinguish route selection from MVC View-location conventions;
-13. explain the controller/View model contract for a strongly typed Razor View.
+| SRS reference | Required behavior / constraint | Lesson contribution |
+| --- | --- | --- |
+| **SRS §3.1–3.2** | Use ASP.NET Core, C#, MVC, Razor, server-rendered pages, HTML/CSS without a CSS framework, Git/GitHub, and automated verification while retaining architectural boundaries | Establish the MVC solution, project-owned frontend, version-control workflow, and introductory test |
+| **SRS §9.2** | Standard HTTP/HTTPS browser interaction with server-rendered HTML | Establish a request to `/Events` that returns an HTML page |
 
----
+**Lesson-level acceptance contract:** A browser request to `/Events` should reach the expected controller action; the action should supply the current temporary title to a Razor View; the server should return readable HTML with working navigation and styling; and an automated test should check the action's narrow result contract.
 
-## 1. From Requirements to a Running Application
+# Feature Preview
 
-Before writing C# code, it is useful to know what you are building and where the rules for the product come from.
+Starting from the approved CEMS SRS, build a server-rendered application with shared navigation and a working Events page. This is the target browser experience for the completed vertical slice.
 
-### The CEMS SRS
+A Visitor opens the application’s root URL and sees the Home page with a shared header, navigation, and footer. Selecting **Privacy** opens the Privacy page. Selecting **Events** requests `/Events` and displays the **Campus Events** heading and a temporary event preview with **Student Research Showcase** as its title and **Student Center** as its location. The pages retain readable styling and keyboard-accessible navigation at desktop and narrow widths.
 
-A **Software Requirements Specification**, or **SRS**, describes what the finished system must do. For CEMS, the SRS defines the required product behavior, user types, terminology, business rules, quality expectations, and project scope.
+![Target CEMS Events page with shared navigation and a temporary Student Research Showcase preview.](images/lesson-01/events-controller-changed-title.png)
 
-That is different from an implementation decision.
-
-For example:
-
-- “Visitors can browse appropriate campus events” is product behavior.
-- “Use ASP.NET Core MVC and Razor Views” is an implementation constraint for this course project.
-- “Name the project `CampusEvents`” is an implementation choice established by this lesson.
-
-Keeping those categories separate is important. A framework may make many features possible, but the application should grow because the product requires them, not simply because they are available.
-
-### CEMS terminology
-
-You will see the following terms throughout the project:
-
-| Term | Meaning in CEMS |
-|---|---|
-| **Visitor** | A person using the application without being authenticated |
-| **Participant** | An authenticated user who can register for events |
-| **Organizer** | An authenticated user who can manage events they own |
-| **Administrator** | An authenticated user with application-wide administrative capabilities |
-| **Event** | A scheduled campus activity |
-| **Category** | A classification for an event |
-| **Registration** | A participant's current reserved place in an event |
-| **Draft** | An event that exists but is not yet published publicly |
-| **Published** | An event that has been made publicly visible |
-| **Cancelled** | A previously published event that is no longer scheduled to occur |
-
-These are product concepts. In this lesson, you will use them as vocabulary only. You will **not** create CEMS `Event`, `Category`, or `Registration` classes yet.
-
-### Requirement identifiers
-
-The SRS uses identifiers to organize requirements. You will encounter groups such as:
-
-- `FR-ACC-*` — accounts and authentication;
-- `FR-SRH-*` — event discovery and search;
-- `FR-EVT-*` — event management;
-- `FR-REG-*` — event registration;
-- `FR-ADM-*` — administration;
-- `BR-*` — business rules;
-- `NFR-*` — non-functional requirements.
-
-Lesson 1 does not complete any functional `FR-*` requirement. The `/Events` page you create is an architectural first slice, not yet the real persisted event-browsing feature.
-
-That distinction is important for the rest of the project. A vertical slice can be technically real without yet satisfying the full product requirement. In this lesson, the request, controller, View, navigation, and response are real; the Event data is intentionally temporary. Later lessons will evolve this same slice rather than throw it away and start over.
-
----
-
-## 2. How a Server-Rendered MVC Application Works
-
-CEMS is a **server-rendered multi-page application**, often shortened to **MPA**.
-
-### Server-rendered pages
-
-When a browser requests a page from a server-rendered ASP.NET Core MVC application, the main work happens on the server:
+The request and response follow this path:
 
 ```text
-Browser
-   ↓ HTTP request
-ASP.NET Core MVC application
-   ↓ controller/application logic
-Razor View renders HTML
-   ↓ HTTP response
-Browser receives HTML
+Visitor selects Events in the browser
+    ↓ HTTP GET /Events
+Server chooses a request handler and prepares a temporary title
+    ↓ Render the Events template within the shared page layout
+Browser receives HTML, displays the title, and loads the CSS
 ```
 
-The browser does not receive your C# controller code. The server executes the C# and Razor code, creates HTML, and sends that HTML to the browser.
+# Design and Coding
 
-This gives the server responsibility for the application logic that produces the page. The browser still participates in HTTP, navigation, forms, CSS, and any later client-side behavior, but it does not need your controller source code in order to display a server-rendered page.
+## Install Visual Studio Code and C# extensions
 
-### Multi-page navigation
+The first step is to prepare your development environment and create a standard ASP.NET Core MVC project. If VS Code is not installed, download it from the official [Visual Studio Code website](https://code.visualstudio.com/Download) and complete the installation.
 
-In a multi-page application, navigating to another application URL normally produces another HTTP request.
+1. Open VS Code and select **Extensions** from the Activity Bar (or press **Ctrl+Shift+X**).
+2. Search for and install **C# Dev Kit** by Microsoft. Installing **C# Dev Kit** normally installs other required extensions automatically.
+3. Install the **.NET 10 SDK** from the official [.NET download page](https://dotnet.microsoft.com/en-us/download/dotnet). The editor extensions provide C# tooling.
+4. Restart your computer to ensure the installation and environment changes take effect.
 
-In Lesson 1, the concrete application URLs you will use are:
+## Check the installed .NET SDK
 
-```text
-/
-/Events
-```
-
-Moving between those pages causes the browser to make a request, ASP.NET Core to process it, and the server to return a rendered response.
-
-### HTTP request and response
-
-For the Events page, the browser will make a GET request conceptually like this:
-
-```text
-GET /Events
-```
-
-A successful response will contain HTML:
-
-```text
-HTTP status: 200 OK
-Content-Type: text/html
-Body: rendered HTML
-```
-
-The URL `/Events` is **not** the path to a Razor file. The browser does not directly open `Views/Events/Index.cshtml`. Routing and MVC conventions decide which server-side code handles the URL.
-
-### MVC at a practical level
-
-MVC stands for **Model–View–Controller**.
-
-For this lesson, use this practical mental model:
-
-- **Controller** — receives a routed request and decides what application action should occur.
-- **Action method** — a public controller method that can handle a request.
-- **Model/value** — server-side data supplied to a View.
-- **View** — a Razor template that turns server-side values into HTML.
-
-Your first CEMS flow will eventually look like this:
-
-```text
-/Events
-   ↓
-EventsController
-   ↓
-Index()
-   ↓
-temporary string value
-   ↓
-Views/Events/Index.cshtml
-   ↓
-HTML response
-```
-
-The “model” in Lesson 1 is deliberately just a `string`. You do not need a real `Event` class to learn the request/render cycle.
-
-Also keep two different MVC conventions separate:
-
-```text
-routing convention
-    → decides which controller action handles the request
-
-View-location convention
-    → helps MVC locate the Razor View after an action returns View()
-```
-
-For `/Events`, routing will eventually select `EventsController.Index()`. Later, when that action returns `View()`, MVC will use the controller/action names to look for `Views/Events/Index.cshtml`. Those are two different stages of the request.
-
----
-
-## 3. Create and Run the CEMS Project
-
-You are starting with no CEMS application, so the first step is to create a standard ASP.NET Core MVC project.
-
-### Check the installed .NET SDK
-
-Open **Windows Command Prompt** and run:
+Open a terminal and run:
 
 ```cmd
 dotnet --version
 ```
 
-This prints the installed .NET SDK version. Use the SDK version approved for your course and keep using that version throughout the project rather than changing versions between lessons.
+This displays the installed SDK version (for example, `10.0.100`). Use the **.NET 10 SDK** for the commands and project examples throughout this project.
 
-### Create the MVC project
+If the command fails, follow these steps:
 
-Create a project named `CampusEvents`:
+1. Visit Microsoft's official [.NET download page](https://dotnet.microsoft.com/en-us/download/dotnet).
+2. Select the **.NET 10 SDK** for your operating system.
+3. Run the installer and complete the installation.
+4. Restart your computer to ensure the installation and environment changes take effect.
+5. Open terminal and run `dotnet --version` again to verify the installation.
+
+Then verify that the ASP.NET Core MVC template is available:
 
 ```cmd
-dotnet new mvc -n CampusEvents
+dotnet new list
 ```
 
-Move into the project directory:
+Once these commands work, your development environment is ready to create the CEMS project.
+
+## Create the MVC project
+
+1. Create an empty `CampusEvents` folder, or clone an empty `CampusEvents` GitHub repository. Treat that folder as the **solution root** for the remaining terminal commands. When cloning, use the repository’s actual HTTPS URL in place of the example below.
 
 ```cmd
-cd CampusEvents
+git clone https://github.com/<username>/CampusEvents.git
 ```
 
-This lesson establishes two names that later code will use:
+2. Open the **`CampusEvents` solution-root folder** in VS Code and open its integrated terminal. Check that the terminal is located in that folder before creating projects.
+3. Initialize the repository. **NOTE:** If you cloned the GitHub repository, skip this step:
 
-- **Project name:** `CampusEvents`
-- **Root namespace:** `CampusEvents`
+```cmd
+git init
+```
 
-### Build before making changes
+4. Create the solution and application/test projects from the solution root:
 
-Compile the generated project:
+
+```cmd
+git switch -c lesson-01
+dotnet new gitignore
+dotnet new sln
+dotnet new mvc -o src/CampusEvents
+dotnet new xunit -o tests/CampusEvents.Tests
+dotnet sln add src/CampusEvents
+dotnet sln add tests/CampusEvents.Tests
+dotnet add tests/CampusEvents.Tests reference src/CampusEvents
+```
+
+This establishes the names that all the lessons will use:
+
+- **Solution:** `CampusEvents`
+- **Main project:** `src/CampusEvents`
+- **Test project:** `tests/CampusEvents.Tests`
+- **Root namespaces:** `CampusEvents` and `CampusEvents.Tests`
+
+5. Build and test the generated projects:
 
 ```cmd
 dotnet build
+dotnet test
 ```
 
-A successful build gives you a known-good baseline. If a later change causes a compile error, you know the project was working before your edits.
+A successful build establishes a baseline for diagnosing subsequent changes.
 
-### Run the generated application
-
-Start the application:
+6. Start the application by typing:
 
 ```cmd
-dotnet run
+dotnet run --project src/CampusEvents
 ```
 
-Use the HTTP or HTTPS URL printed in the console. The port number may differ from one computer to another.
+in the terminal. Open the HTTP(S) URL printed in the console; the port number may differ between runs. As an alternative, use **Run > Start Debugging (F5)** in VS Code after configuring a C# launch profile for `CampusEvents`. Select that profile to start the debugger.
 
-At this point, you are looking at the generated MVC template. It is not yet CEMS-specific, but it proves that the project can build and run.
+The generated MVC template now runs through the development server. You can inspect its initial Home page and navigation before customizing the CEMS interface.
 
----
+![CEMS Home page first run before frontend framework removal.](images/lesson-01/events-first-run.png)
 
-## 4. Tour the Parts of the Project You Need Today
+Leave the web browser window open. Stop the server by pressing **Ctrl+C** in the terminal or by pressing the stop button (□) in the debug controls.
 
-You do not need to memorize every generated file. Focus on the pieces involved in the first request flow.
+## Tour the generated solution files
+
+Inspect the files that establish request handling, View rendering, project configuration, and browser assets.
 
 ```text
 CampusEvents/
-│
-├── Controllers/
-│   └── HomeController.cs
-│
-├── Models/
-│   └── ErrorViewModel.cs
-│
-├── Views/
-│   ├── Home/
-│   ├── Shared/
-│   │   └── _Layout.cshtml
-│   ├── _ViewImports.cshtml
-│   └── _ViewStart.cshtml
-│
-├── wwwroot/
-│
-├── appsettings.json
-├── appsettings.Development.json
-├── Program.cs
-└── CampusEvents.csproj
+├── src/
+│		└── CampusEvents/
+│				├── Controllers/
+│				│		└── HomeController.cs
+│				├── Models/
+│				│		└── ErrorViewModel.cs
+│				├── Views/
+│				│		├── Home/
+│				│		│		└── Index.cshtml
+│				│		├── Shared/
+│				│		│		└── _Layout.cshtml
+│				│		└── _ViewImports.cshtml
+│				├── wwwroot/
+│				│		└── css/
+│				│				└── site.css
+│				├── appsettings.Development.json
+│				├── appsettings.json
+│				├── CampusEvents.csproj
+│				└── Program.cs
+├── tests/
+│		└──  CampusEvents.Tests/
+│				├── CampusEvents.Tests.csproj
+│				└── UnitTest1.cs
+├── .gitignore
+└── CampusEvents.slnx
 ```
 
-### `Program.cs`
+The application and test project are separate projects within one solution.
 
-This is the application startup file. It registers services, builds the app, configures the request pipeline, and maps routes.
+#### File: `Program.cs`
+
+This is the application startup file and *composition root*. It registers services, builds the app, configures the request pipeline (middleware), and maps routes to endpoints.
+
+#### Folder: `Controllers/`
+
+Controllers contain action methods that can respond to routed requests.
+
+#### Folder: `Models/`
+
+This folder contains the data models used by the application.
+
+#### Folder: `Views/`
+
+Views are Razor templates that render HTML on the server.
+
+#### File: `Views/_ViewStart.cshtml`
+
+Selects the shared layout for Views.
+
+#### File: `Views/_ViewImports.cshtml`
+
+Enables common Razor imports and the MVC Tag Helpers used by links.
+
+#### File: `Views/Shared/_Layout.cshtml`
+
+The shared layout contains page structure used across multiple Views, including site navigation.
+
+#### Folder: `wwwroot/`
+
+This folder contains static files such as CSS, JavaScript, and images.
+
+#### Files: `appsettings.json` and `appsettings.Development.json`
+
+These files hold configuration. Normal non-secret configuration can live here, but passwords, API keys, tokens, and production credentials should not be committed to source control.
+
+## Remove unused frontend frameworks
+
+CEMS uses semantic HTML, a shared Razor layout, and `wwwroot/css/site.css`. Remove the generated frontend packages so the application uses the project-owned stylesheet and semantic HTML:
+
+```cmd
+rmdir /s /q src\CampusEvents\wwwroot\lib\bootstrap
+rmdir /s /q src\CampusEvents\wwwroot\lib\jquery
+rmdir /s /q src\CampusEvents\wwwroot\lib\jquery-validation
+rmdir /s /q src\CampusEvents\wwwroot\lib\jquery-validation-unobtrusive
+del /q src\CampusEvents\wwwroot\js\site.js
+del /q src\CampusEvents\Views\Shared\_ValidationScriptsPartial.cshtml
+```
+
+#### File: `src/CampusEvents/wwwroot/css/site.css`
+
+Replace everything with:
+
+```css
+:root {
+	font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	line-height: 1.5;
+	color: #1f2328;
+	background: #ffffff;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	min-height: 100vh;
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+a {
+	color: #174ea6;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+	outline: 3px solid #7aa7e8;
+	outline-offset: 2px;
+}
+
+.site-shell {
+	width: min(72rem, calc(100% - 2rem));
+	margin-inline: auto;
+}
+
+.site-header {
+	border-bottom: 1px solid #d0d7de;
+	background: #f6f8fa;
+}
+
+.site-header-inner {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 1rem;
+	padding-block: 0.85rem;
+}
+
+.site-brand {
+	color: #1f2328;
+	font-weight: 700;
+	text-decoration: none;
+}
+
+.site-nav {
+	flex: 1;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.site-nav-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.8rem;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.site-nav-link {
+	display: inline-block;
+	padding: 0.35rem 0;
+}
+
+.page-content {
+	flex: 1;
+	padding-block: 1.5rem 2.5rem;
+}
+
+.site-footer {
+	border-top: 1px solid #d0d7de;
+	padding-block: 1rem;
+	background: #f6f8fa;
+}
+
+@media (max-width: 48rem) {
+	.site-header-inner,
+	.site-nav {
+		align-items: flex-start;
+	}
+
+	.site-nav {
+		flex-direction: column;
+	}
+}
+```
+
+The CSS provides readable defaults, maximum content width, a shared header and footer, visible keyboard focus, and navigation that can wrap or stack. CEMS uses its own CSS class names and stylesheet.
+
+#### File: `src/CampusEvents/Views/Shared/_Layout.cshtml`
+
+Replace everything with:
+
+```cshtml
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>@ViewData["Title"] - CampusEvents</title>
+	<link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+	<header class="site-header">
+		<div class="site-shell site-header-inner">
+			<a class="site-brand" asp-controller="Home" asp-action="Index">CampusEvents</a>
+
+			<nav class="site-nav" aria-label="Primary navigation">
+				<ul class="site-nav-list">
+					<li><a class="site-nav-link" asp-controller="Home" asp-action="Index">Home</a></li>
+					<li><a class="site-nav-link" asp-controller="Home" asp-action="Privacy">Privacy</a></li>
+				</ul>
+			</nav>
+		</div>
+	</header>
+
+	<main class="site-shell page-content">
+		@RenderBody()
+	</main>
+
+	<footer class="site-footer">
+		<div class="site-shell">
+			<span>&copy; CampusEvents</span>
+		</div>
+	</footer>
+</body>
+</html>
+```
+
+`asp-append-version="true"` gives the stylesheet URL a content-based version token (e.g., `/css/site.css?v=abc123`). When the file changes, the version changes too (e.g., `/css/site.css?v=xyz789`), telling the browser to download the updated file instead of using an outdated cached copy (i.e., *cache busting*).
+
+The initial navigation contains **Home** and **Privacy**, both backed by the template's existing controller. The `asp-controller` and `asp-action` Tag Helpers generate ordinary `href` hyperlinks pointing to the chosen endpoints `Home/Index` and `Home/Privacy`.
+
+`@RenderBody()` inserts the requested page's View into the main region. Notice that the same navigation and stylesheet surround every page, while the individual View supplies only its page content.
+
+#### File: `src/CampusEvents/Views/Home/Index.cshtml`
+
+Replace everything with: 
+
+```cshtml
+@{
+	ViewData["Title"] = "Home";
+}
+
+<h1>Campus Events Management System</h1>
+
+<p>Welcome to the Campus Events Management System. Browse the Events preview to explore campus activities.</p>
+```
+
+#### File: `src/CampusEvents/Views/Home/Privacy.cshtml`
+
+Replace everything with: 
+
+```cshtml
+@{
+	ViewData["Title"] = "Privacy";
+}
+
+<h1>Privacy</h1>
+
+<p>For questions about campus privacy practices and personal information, consult your institution’s official privacy guidance.</p>
+```
+
+#### File: `src/CampusEvents/Views/Shared/Error.cshtml`
+
+Replace: 
+
+```cshtml
+@model ErrorViewModel
+
+@{
+	ViewData["Title"] = "Error";
+}
+
+<h1>Something went wrong</h1>
+
+<p>We could not complete your request.</p>
+
+@if (Model.ShowRequestId)
+{
+	<p><strong>Request ID:</strong> <code>@Model.RequestId</code></p>
+}
+```
+
+Build, and run it:
+
+```cmd
+dotnet build
+dotnet run --project src/CampusEvents
+```
+
+Open the HTTP(S) address printed by the application. Check Home and Privacy, including navigation, headings, stylesheet, and narrow-width layout.
+
+![CEMS Home page with project-owned styling and shared Home and Privacy navigation.](images/lesson-01/home-shared-shell.png)
+
+## Implement the first Events vertical slice
+
+### Create the Events controller without a model
+
+#### File: `src/CampusEvents/Controllers/EventsController.cs`
+
+Create:
+
+```csharp
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+
+namespace CampusEvents.Controllers;
+
+public class EventsController : Controller
+{
+	private readonly ILogger<EventsController> _logger;
+
+	public EventsController(ILogger<EventsController> logger)
+	{
+		_logger = logger;
+	}
+
+	public IActionResult Index()
+	{
+		_logger.LogInformation("Handling request for the CEMS Events page.");
+		return View();
+	}
+}
+```
+
+The controller suffix and inheritance from `Controller` allow MVC to discover and use the class according to ordinary conventions. The public `Index()` method is an **action**, `IActionResult` represents a returned result, and `View()` asks MVC to render the conventional View without supplying a model yet.
+
+The Events controller receives a logger via constructor dependency injection. The constructor requests an `ILogger<EventsController>`. The framework's dependency-injection system provides it when constructing the controller. The runtime's application startup registers the services and assembles the request pipeline. The application configures the logging provider, while the controller uses the injected logger through a stable interface. `LogInformation(...)` helps establish that the action actually ran. 
+
+### Render a static Events view
+
+#### File: `src/CampusEvents/Views/Events/Index.cshtml`
+
+Create `Events` folder, then `Index.cshtml`:
+
+```cshtml
+@{
+	ViewData["Title"] = "Events";
+}
+
+<h1>Campus Events</h1>
+
+<p>Explore campus activities and discover where events take place.</p>
+
+<section>
+	<h2>Temporary Event Preview</h2>
+	<p>Campus Welcome Mixer</p>
+	<p>Student Center</p>
+</section>
+```
+
+Build and run it:
+
+```cmd
+dotnet build
+dotnet run --project src/CampusEvents
+```
+
+Open `/Events` directly by adding that path to the application URL printed in the terminal. The page should show **Campus Events**, **Temporary Event Preview**, **Campus Welcome Mixer**, and **Student Center**.
+
+![Static CEMS Events page showing Campus Welcome Mixer before controller-supplied data.](images/lesson-01/events-static-view.png)
+
+The informational controller log should appear in the terminal. The log identifies the controller action that handled the request; the browser receives the resulting HTML.
+
+![Informational controller log in the terminal.](images/lesson-01/events-static-view-log.png)
+
+### Move the temporary title into the controller
+
+Now deliberately establish a simple **controller/View model contract**: the controller supplies a `string`; the View declares it expects `string`; the View renders the supplied value.
+
+#### File: `src/CampusEvents/Controllers/EventsController.cs`
+
+Replace only the `Index()` method:
+
+```csharp
+public IActionResult Index()
+{
+	_logger.LogInformation("Handling request for the CEMS Events page.");
+
+	var featuredEventTitle = "Campus Sustainability Fair";
+
+	return View(model: featuredEventTitle);
+}
+```
+
+#### File: `src/CampusEvents/Views/Events/Index.cshtml`
+
+Replace everything with:
+
+```cshtml
+@model string
+
+@{
+	ViewData["Title"] = "Events";
+}
+
+<h1>Campus Events</h1>
+
+<p>Explore campus activities and discover where events take place.</p>
+
+<section>
+	<h2>Temporary Event Preview</h2>
+	<p><strong>@Model</strong></p>
+	<p>Student Center</p>
+</section>
+```
+
+These similarly spelled tokens do **different jobs**:
+
+| Syntax | Meaning |
+| --- | --- |
+| `model:` in `View(model: featuredEventTitle)` | C# named argument supplying a **value** to the View result |
+| `@model string` | Razor directive declaring the View's expected **type** |
+| `@Model` | Razor property exposing the supplied **value** during rendering |
+
+> **Naming note:** `model:`, `@model`, and `@Model` are three different things. Think of this as a small ASP.NET naming hangover — as if the framework designers had one drink too many before choosing three nearly identical labels — or, perhaps more charitably, as the result of naming important framework mechanisms before anyone had enough coffee.
+
+Follow the **value** from start to finish:
+
+```text
+featuredEventTitle = "Campus Sustainability Fair"
+    ↓ return View(model: featuredEventTitle) passes a string
+Views/Events/Index.cshtml @model directive declares the model type as a string
+    ↓ @Model property receives the supplied string
+Razor inserts the text into server-generated HTML
+```
+
+Build and run it:
+
+```cmd
+dotnet build
+dotnet run --project src/CampusEvents
+```
+
+The displayed title should now be **"Campus Sustainability Fair"** in bold.
+
+![CEMS Events page displaying Campus Sustainability Fair supplied by the controller.](images/lesson-01/events-controller-title.png)
+
+### Add Events link to the shared navigation
+
+Typing `/Events` now works, but visitors should also be able to discover the page through the shared layout.
+
+#### File: `src/CampusEvents/Views/Shared/_Layout.cshtml`
+
+Insert this item **between Home and Privacy** inside `<ul class="site-nav-list">`:
+
+```cshtml
+<li><a class="site-nav-link" asp-controller="Events" asp-action="Index">Events</a></li>
+```
+
+Rebuild and click on **Events**. The Events page should display **"Campus Sustainability Fair"** and share the same header, footer, and stylesheet as the other pages.
+
+### Trace the request and make a bounded change
+
+Use the application log, debugger breakpoint, or browser Network panel to observe different parts of the same request:
+
+- **Server log:** Shows *"Handling request for the CEMS Events page."* in the terminal.
+- **Breakpoint:** Establishes that `EventsController.Index()` executed and exposes the local `featuredEventTitle` value.
+- **Document response:** Browser developer tools → **Network** panel shows the requested URL, HTTP status, response type, and rendered HTML.
+- **Browser page:** Shows whether the expected text and styling are actually visible and the Events link works.
+
+The logger identifies the selected action, the breakpoint exposes its local values, and the Network panel shows the HTTP exchange.
+
+Now, change the title from **"Campus Sustainability Fair"** to **"Student Research Showcase"**. Rebuild and reload `/Events`. Notice that even though the View's markup stayed the same the displayed title changed when the supplied data changed. This is the architectural reason for moving the title out of the View before introducing more complex Event information.
+
+![CEMS Events page displaying Student Research Showcase supplied by the controller.](images/lesson-01/events-controller-changed-title.png)
+
+**Expected contract:** The focused regression assertion uses the final title `Student Research Showcase`; keep the controller and test expectations aligned.
+
+**Expected observable result:** The Events link should appear between Home and Privacy on all three pages, and `/Events` should render **"Student Research Showcase"** without editing the View again. At a narrow viewport, the navigation should wrap or stack while preserving access to the Events link.
+
+![Narrow-width CEMS Events page with responsive navigation and Student Research Showcase preview.](images/lesson-01/events-final-mobile.png)
+
+**Checkpoint:** `/Events` connects routing, a controller-supplied string, Razor rendering, shared navigation, and CSS in one inspectable request/response slice.
+
+## Document and commit the working MVC slice
+
+Create a root **`README.md`** with the application purpose, prerequisites, commands, and currently available pages:
+
+````md
+# Campus Events Management System (CEMS)
+
+Course Project #1 — server-rendered ASP.NET Core MVC application.
+
+## Prerequisites
+
+- .NET 10.x SDK
+
+## Run from the solution folder
+
+```cmd
+dotnet build
+dotnet test
+dotnet run --project src/CampusEvents
+```
+
+If you want to use HTTPS run:
+
+```cmd
+dotnet dev-certs https --trust
+```
+
+once, from then on only this:
+
+```cmd
+dotnet run --project src/CampusEvents --launch-profile https
+```
+
+If dependency restore reports a vulnerability, inspect the package advisory. Update the affected direct dependency to a compatible patched version, then rebuild and retest.
+
+```cmd
+dotnet package update --vulnerable --project src/CampusEvents
+```
+
+Open the URL printed by the application and select Events.
+
+## Current scope
+
+The application serves Home, Privacy, and Events pages through MVC, with shared navigation, project-owned CSS, and a controller-provided event title. It also includes an xUnit test project.
+````
+
+# Discussion
+
+The working CEMS request-to-page slice provides a concrete example of the boundaries between request routing, controller logic, rendering, shared structure, and browser behavior.
+
+## Server-rendered pages and the HTTP contract
+
+A browser sends an **HTTP request** containing a method, URL, protocol version, headers, and sometimes a message body. A server replies with a protocol version, status code, response headers, and an optional message body.
+
+For example, an HTTP request may contain:
+
+```http
+GET /Events HTTP/1.1
+Host: www.cems.com
+```
+
+For CEMS pages, a successful response contains server-generated HTML in its message body:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+
+<!DOCTYPE html>
+<html lang="en">
+...
+</html>
+```
+
+CEMS uses **server-side rendering (SSR)**: MVC and Razor generate HTML on the server. As a **multi-page application (MPA)**, CEMS ordinarily loads a new HTML document when the browser follows a page link. The browser also requests referenced stylesheets and other static resources. By comparison, **client-side rendering (CSR)** uses browser JavaScript to construct or update the page. The [Appendix: Rendering and navigation strategies](#rendering-and-navigation-strategies) section in the appendix compares these strategies and their possible combinations.
+
+For the first Events page, the intended flow is:
+
+```text
+Browser GET /Events
+	↓
+HTTP request enters server pipeline
+	↓
+Router selects a controller action
+	↓
+Controller action prepares a temporary title
+	↓
+Razor View combines markup and the title
+	↓
+Server returns an HTML response
+	↓
+Browser renders the page and requests its CSS
+```
+
+The server executes C# and Razor and sends the resulting HTML to the browser, which renders the document and follows its hyperlinks.
+
+
+## Application startup and composition root
+
+#### File: `src/CampusEvents/Program.cs`
+
+Open `Program.cs`. The exact generated file can vary slightly across .NET versions, but the Lesson 1 baseline is equivalent to the following:
+
+```csharp
+// Services registration
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllersWithViews();
+
+var app = builder.Build();
+
+// Middleware configuration
+
+if (!app.Environment.IsDevelopment())
+{
+	app.UseExceptionHandler("/Home/Error");
+	app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+app.UseStaticFiles();
+app.UseRouting();
+app.UseAuthorization();
+
+// Routes/endpoints mapping
+
+app.MapControllerRoute(name: "default", pattern: "{controller=Home}/{action=Index}/{id?}");
+
+app.Run();
+```
+
+`Program.cs` is more or less divided into three sections:
+
+1. Services registration
+2. Middleware configuration
+3. Route-to-endpoint mapping
 
 A useful first mental model is:
 
@@ -308,190 +822,107 @@ A useful first mental model is:
 startup
 │
 ├─ register services
-│     ↓
-│  dependency-injection container knows what can be provided
-│
-├─ build the application
+│		↓
+│	dependency-injection container knows what can be provided
 │
 ├─ configure the request pipeline
-│     ↓
-│  ordered middleware processes requests
+│		↓
+│	ordered middleware processes requests
 │
-└─ map endpoints/routes
-      ↓
-   requests can reach controller actions
+└─ map routes to endpoints
+		↓
+	 requests can reach controller actions
 ```
 
-You do not need the internals of these systems yet. You do need to recognize that each line in `Program.cs` participates in a different part of startup or request handling.
+### Service registration and dependency injection
 
-### `Controllers/`
+A component should declare the services it needs rather than construct all supporting infrastructure itself. **Dependency injection** lets the application supply those dependencies. This supports clearer responsibilities and often makes isolated testing easier.
 
-Controllers contain action methods that can respond to routed requests.
-
-### `Views/`
-
-Views are Razor templates that render HTML on the server.
-
-### `Views/Shared/_Layout.cshtml`
-
-The shared layout contains page structure used across multiple Views, including site navigation.
-
-### `wwwroot/`
-
-This folder contains static files such as CSS, JavaScript, and images.
-
-### `appsettings.json` and environment-specific settings
-
-These files hold configuration. Normal non-secret configuration can live here, but passwords, API keys, tokens, and production credentials should not be committed to source control.
-
-### What about `ErrorViewModel`?
-
-The MVC template may include `Models/ErrorViewModel.cs`. That file supports template error handling. It is not a CEMS domain entity.
-
-At this stage, there is still no CEMS `Event`, `Category`, or `Registration` model.
-
----
-
-## 5. Understand `Program.cs`
-
-Open `Program.cs`.
-
-The exact generated file can vary slightly across .NET versions, but the Lesson 1 baseline is equivalent to the following:
-
-### File: `Program.cs`
+ASP.NET Core uses a built-in **dependency injection container**. Applications register services during startup, and framework components can receive those services when they are created. 
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
-
-// Register MVC controller and Razor View services.
-builder.Services.AddControllersWithViews();
-
-var app = builder.Build();
-
-// Use a controlled error path outside Development.
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Home/Error");
-    app.UseHsts();
-}
-
-app.UseHttpsRedirection();
-app.UseStaticFiles();
-
-app.UseRouting();
-
-app.UseAuthorization();
-
-app.MapControllerRoute(
-    name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}");
-
-app.Run();
 ```
 
-If the project generated by your course-approved SDK contains small template differences, keep the approved equivalent rather than changing framework versions simply to make the file look identical.
+automatically registers ASP.NET Core's default logging services in the built-in DI container, including:
 
-Before reading the individual lines, divide `Program.cs` into three questions:
+- `ILogger<T>`: Used for logging within controllers and services.
+- `ILoggerFactory`: Used to create logger instances.
+- `ILoggerProvider`: The interface implemented by logging providers.
 
-```text
-1. What capabilities does the application need?
-   → register services
+ASP.NET Core registers logging services in the application host and resolves `ILogger<T>` for controllers through dependency injection.
 
-2. How should an incoming request move through the application?
-   → configure middleware
+When a controller declares `ILogger<EventsController>` in its constructor, the framework can supply a compatible logger; that way the controller does not construct a logging provider or require an explicit logger registration of its own. 
 
-3. Which endpoints can ultimately handle requests?
-   → map routes/endpoints
-```
-
-This separation will matter later. For example, registering MVC services is not the same operation as defining a route that can reach a controller.
-
-### Service registration
-
-This line is the main service-registration statement you need today:
+The following statement registers the services required for MVC controllers and Razor views:
 
 ```csharp
 builder.Services.AddControllersWithViews();
 ```
 
-ASP.NET Core uses a built-in **dependency injection container**. Applications register services during startup, and framework components can receive those services when they are created.
-
-For now, think of service registration as telling ASP.NET Core:
-
-> “This application uses MVC controllers and Razor Views, so make the required framework services available.”
-
-The broader dependency-injection pattern is:
-
-```text
-application/framework registers services
-        ↓
-ASP.NET Core creates an object such as a controller
-        ↓
-the constructor declares what it needs
-        ↓
-the DI container supplies compatible registered services
-```
-
-Later in the lesson, ASP.NET Core will supply an `ILogger<EventsController>` to your controller through dependency injection. In Lesson 2, the same general mechanism will supply the application's database context. The service changes; the dependency-injection idea remains the same.
+Think of startup as creating a registry of available dependencies. A component declares what it needs; the application supplies it. This separation makes it easier to reason about components.
 
 ### Middleware and the request pipeline
 
 These statements participate in configuring how requests move through the application:
 
 ```csharp
+if (!app.Environment.IsDevelopment())
+{
+	app.UseExceptionHandler("/Home/Error");
+	app.UseHsts();
+}
+
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthorization();
 ```
 
-You do not need to study middleware internals yet. At this level, think of middleware as ordered stages in the application's request-processing pipeline.
+Middleware components form an ordered request-processing pipeline. Each component can handle a request or pass it onward; components that pass control forward can process the response as it returns. The order in `Program.cs` determines which components run before an endpoint and which can act on the response.
 
 Conceptually:
 
 ```text
-incoming request
-    ↓
-HTTPS handling
-    ↓
-static-file handling
-    ↓
-routing
-    ↓
-authorization
-    ↓
-selected endpoint
-    ↓
-response travels back through the pipeline
+Incoming request
+	↓
+Middleware pipeline
+		↓
+	Exception handler
+		↓
+	HSTS
+		↓
+	HTTPS redirection
+		↓
+	Static-file handling (/css/site.css is served here)
+		↓
+	Routing
+		↓
+	Authorization evaluates endpoint requirements
+		↓
+Selected endpoint (action → Razor View → HTML response)
+	↓
+Response travels back through the pipeline
 ```
 
-The exact behavior of each middleware component can become more sophisticated than this diagram suggests, but the important idea is that **order matters**. A request moves through the configured pipeline, and some stages depend on work established by earlier stages.
+The configured middleware components have these responsibilities:
 
-`UseRouting()` participates in matching the incoming request to a configured endpoint, such as a controller action selected through the application's routing rules.
+- `UseExceptionHandler("/Home/Error")`, handles unhandled exceptions from later middleware by re-executing the request at `/Home/Error`.
+- `UseHsts()`, adds the HTTP Strict Transport Security (HSTS) header to eligible HTTPS responses, directing browsers to use HTTPS on subsequent visits.
+- `UseHttpsRedirection()` redirects incoming HTTP requests to their HTTPS equivalents, helping ensure that communication between the browser and server is encrypted.
+- `UseStaticFiles()` or `MapStaticAssets()` enables the application to serve static files, such as CSS, JavaScript, and images, directly from the `wwwroot` directory without requiring controller actions to handle those requests.
+- `UseRouting()` matches the incoming request to an application endpoint, such as an MVC controller action, based on the configured routing rules.
+- `UseAuthorization()` runs after routing so it can evaluate any authorization requirements associated with the selected endpoint.
 
-The template contains `UseAuthorization()`, but CEMS authorization behavior is not implemented in this lesson. You are simply preserving the normal MVC startup pipeline so later authentication and authorization features can evolve from an ordinary MVC application.
+Serve static stylesheets through static-file middleware, and place authorization after routing so it can evaluate the selected endpoint’s policies. Preserve this ordering when modifying the pipeline.
 
-### Conventional routing
+### Route-to-endpoint mapping
 
-This route is central to the lesson:
+This mapping is central to the lesson:
 
 ```csharp
-app.MapControllerRoute(
-    name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}");
+app.MapControllerRoute(name: "default", pattern: "{controller=Home}/{action=Index}/{id?}");
 ```
-
-Do not confuse this with `AddControllersWithViews()`:
-
-```text
-AddControllersWithViews()
-    → registers MVC capabilities/services
-
-MapControllerRoute(...)
-    → defines a conventional way requests can reach controller actions
-```
-
-One prepares the framework services; the other participates in endpoint mapping.
 
 The route pattern has three pieces:
 
@@ -503,1173 +934,315 @@ It also provides defaults:
 
 - controller: `Home`
 - action: `Index`
-- `id`: optional
 
-That means the root URL:
+With these defaults, `/` expands to `/Home/Index` and selects `HomeController.Index()`, while `/Home/Privacy` selects `HomeController.Privacy()`. The controller and action segments select a request handler; MVC then locates the Razor View returned by that action.
 
-```text
-/
-```
-
-can be handled by:
-
-```text
-HomeController.Index()
-```
-
-#### Attribute routing exists, but CEMS will introduce it later
-
-ASP.NET Core MVC also supports **attribute routing**, where route templates and HTTP-method attributes are placed directly on controllers or actions.
-
-For example, later code can use attributes such as:
-
-```csharp
-[Route("organizer/events")]
-```
-
-or:
-
-```csharp
-[HttpGet("{id:int}/edit")]
-```
-
-Lesson 1 will **not** switch to that routing style yet. The generated conventional route gives you one simple rule to trace while you are learning the request/render cycle.
-
-Later, when CEMS gains Organizer workflows with multiple GET and POST operations—Create, Edit, Publish, Cancel, and Delete—attribute routing will be introduced because explicit route definitions will solve a real readability and route-organization problem. At that point you will be able to compare the two styles from experience rather than treating attribute routing as unrelated syntax.
-
-For now, keep:
-
-```text
-{controller=Home}/{action=Index}/{id?}
-```
-
-and learn how one conventional route maps URLs to controller actions.
-
-
-### Trace the generated route
-
-Open `Controllers/HomeController.cs` and locate its `Index()` action. Then look at:
-
-```text
-Views/Home/Index.cshtml
-```
-
-Request the root page in the browser and trace the flow:
+When an action method returns `View()`, the View-location convention normally finds the Razor file based on controller and action names. For the existing Home page:
 
 ```text
 Browser GET /
-    ↓
-default conventional route
-    ↓
-controller = Home
-    ↓
-action = Index
-    ↓
+    ↓ conventional route: Home / Index
 HomeController.Index()
-    ↓
-return View()
-    ↓
+    ↓ returns View()
 Views/Home/Index.cshtml
+    ↓ rendered inside Views/Shared/_Layout.cshtml
+HTML document
     ↓
-Razor renders HTML
-    ↓
-HTML response returns to browser
+Browser → fetches wwwroot/css/site.css
 ```
 
-The browser only knows that it requested `/`. MVC decides which controller action and View are involved.
+## Routing, endpoints, and rendering
 
-Notice that two decisions occur:
+Design URLs around the resource or user action they represent, then assign request handling and page rendering to distinct components. The `/Events` implementation illustrates this separation: a controller prepares page data, a View renders content, the shared layout supplies common structure, and CSS controls presentation.
 
-```text
-GET /
-    ↓
-routing selects HomeController.Index()
-    ↓
-the action returns View()
-    ↓
-View-location conventions select Views/Home/Index.cshtml
+When designing another page, decide which URL identifies the resource, which action handles the request, and which View presents the result. Shared navigation links should resolve to application routes rather than to the physical `.cshtml` source paths. For a deeper comparison of server and browser rendering, navigation mechanisms, and related delivery strategies, see [Appendix: Rendering and navigation strategies](#rendering-and-navigation-strategies).
+
+## Semantic HTML, styling, and accessibility
+
+Use structural HTML to express document meaning and CSS to express presentation. A page should have a meaningful top-level heading, identifiable navigation, a main-content region, readable links, and visible keyboard focus. A reusable layout prevents each page from duplicating the shared structure.
+
+Responsive design is not merely shrinking text. Navigation must remain discoverable, content must retain usable spacing, and normal pages should not require horizontal scrolling at common mobile widths. When validating the interface, inspect the rendered layout, keyboard focus, and navigation at desktop and mobile widths.
+
+## Verification, validation, and reproducible evidence
+
+**Verification** asks whether implementation conforms to a defined technical contract. **Validation** asks whether the resulting system behavior meets the intended need. A common way to express it is:
+
+> "Verification checks if you made the product right, and validation checks if you made the right product."
+ 
+Use action-level tests to check controller results and browser scenarios to check routing, HTML rendering, and accessible navigation.
+
+# Verification and Validation
+
+## Automated
+
+| Test / case | Behavior or boundary | Expected assertion / evidence |
+| --- | --- | --- |
+| New — `Index_Returns​View​With​Expected​Temporary​Title` (1 expected case) | Direct controller View contract for the temporary Events title | `ViewResult` with exactly `Student Research Showcase`. |
+
+### Test — `Index_ReturnsViewWithExpectedTemporaryTitle`
+
+A `[Fact]` method defines one non-parameterized test case. The inventory below describes the controller test authored for this lesson.
+
+**Purpose:** Verify that invoking the Events action directly returns a View result carrying the expected temporary title.
+
+The xUnit project template may contain a generated placeholder test. Delete or rename it:
+
+```cmd
+ren tests\CampusEvents.Tests\UnitTest1.cs tests\CampusEvents.Tests\EventsControllerTests.cs
 ```
 
-Routing gets the request **to an action**. The View-location convention helps MVC find the Razor template **after the action asks for a View**.
+#### File: `tests/CampusEvents.Tests/EventsControllerTests.cs`
 
-### Check Your Understanding
-
-1. What does `AddControllersWithViews()` make available to the application?
-2. How is service registration different from `MapControllerRoute(...)`?
-3. What role does `UseRouting()` play at a high level?
-4. Why can `/` reach `HomeController.Index()` even though the URL does not contain `Home/Index`?
-5. After `HomeController.Index()` returns `View()`, what convention helps MVC locate `Views/Home/Index.cshtml`?
-
----
-
-## 6. Build the First CEMS Events Page
-
-Now you will add the first CEMS-specific request flow.
-
-### 6.1 Create `EventsController`
-
-A controller class inherits from `Controller`, which gives it access to MVC behavior such as the `View(...)` methods used to return Razor Views.
-
-An **action method** is a public method on a controller that MVC can select to handle a request.
-
-### File: `Controllers/EventsController.cs`
-
-Create the file with this code:
+Create:
 
 ```csharp
+using CampusEvents.Controllers;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
 
-namespace CampusEvents.Controllers;
+namespace CampusEvents.Tests;
 
-public class EventsController : Controller
+public class EventsControllerTests
 {
-    private readonly ILogger<EventsController> _logger;
+	[Fact]
+	public void Index_ReturnsViewWithExpectedTemporaryTitle()
+	{
+		// Arrange: provide a simple logger without starting a web server.
+		var controller = new EventsController(NullLogger<EventsController>.Instance);
 
-    public EventsController(ILogger<EventsController> logger)
-    {
-        _logger = logger;
-    }
+		// Act: invoke the controller action directly.
+		var result = controller.Index();
 
-    public IActionResult Index()
-    {
-        _logger.LogInformation("Handling request for the CEMS Events page.");
-        return View();
-    }
+		// Assert: inspect the action result and its model.
+		var view = Assert.IsType<ViewResult>(result);
+		var title = Assert.IsType<string>(view.Model);
+		Assert.Equal("Student Research Showcase", title);
+	}
 }
 ```
 
-Several ideas appear here for the first time.
+This test follows the **Arrange–Act–Assert (AAA)** pattern, a widely used convention in software testing that organizes a test into three steps:
 
-#### `EventsController : Controller`
+1. **Arrange:** Prepare the objects and dependencies needed for the test. Here, create the controller with a no-op logger (a logger that discards messages).
+2. **Act:** Execute the behavior being tested by invoking the controller's action method.
+3. **Assert:** Verify that the action produces the expected result type and exact string model.
 
-The class name ends in `Controller`, which matches MVC controller conventions. Inheriting from `Controller` gives the class MVC controller functionality.
+The no-op logger keeps the test simple and isolated, eliminating the need for a mocking package or a running web server.
 
-#### Constructor injection
-
-The constructor receives:
-
-```csharp
-ILogger<EventsController> logger
-```
-
-You did not write `new Logger(...)`. ASP.NET Core creates the controller and supplies a compatible logger through dependency injection.
-
-Connect this back to `Program.cs`:
-
-```text
-ASP.NET Core logging services exist
-        ↓
-MVC creates EventsController
-        ↓
-constructor requests ILogger<EventsController>
-        ↓
-dependency injection supplies it
-        ↓
-controller stores and uses the service
-```
-
-The controller declares a dependency; it does not take responsibility for constructing the logging infrastructure itself.
-
-The field:
-
-```csharp
-private readonly ILogger<EventsController> _logger;
-```
-
-stores that service so the action can use it.
-
-#### `Index()`
-
-The method:
-
-```csharp
-public IActionResult Index()
-```
-
-is the controller action for the Events page.
-
-This line creates a visible diagnostic message when the action runs:
-
-```csharp
-_logger.LogInformation("Handling request for the CEMS Events page.");
-```
-
-This line asks MVC to render the View associated with the current controller and action:
-
-```csharp
-return View();
-```
-
-At this moment, the controller contains no database access and no real CEMS Event object.
-
-### 6.2 Create the Razor View
-
-If you request `/Events` before creating the View, MVC can find the controller action but cannot find the corresponding Razor file.
-
-Create the folder `Views/Events` if necessary, then create the View.
-
-### File: `Views/Events/Index.cshtml`
-
-```cshtml
-@{
-    ViewData["Title"] = "Events";
-}
-
-<h1>Campus Events</h1>
-
-<p>
-    This is the first CEMS Events page. Event information is temporary in
-    Lesson 1 and is not loaded from a database.
-</p>
-
-<section>
-    <h2>Temporary Event Preview</h2>
-    <p>Campus Welcome Mixer</p>
-    <p>Student Center</p>
-</section>
-```
-
-When `EventsController.Index()` calls `View()` without naming a View explicitly, MVC uses conventions to look for:
-
-```text
-EventsController + Index()
-        ↓
-Views/Events/Index.cshtml
-```
-
-This is a **View-location convention**, not the routing convention that selected `EventsController.Index()` in the first place.
-
-```text
-/Events
-    ↓ routing
-EventsController.Index()
-    ↓ return View()
-View-location convention
-    ↓
-Views/Events/Index.cshtml
-```
-
-Razor executes on the server. The browser never opens the `.cshtml` file directly.
-
-### Run It
-
-Build the project again:
+From the solution root, inspect the discovered tests before running the suite:
 
 ```cmd
-dotnet build
+dotnet test --list-tests
+dotnet test
 ```
 
-Run the application if it is not already running:
+**Expected outcome:** The test runner discovers the test and reports a pass when the controller returns a `ViewResult` with the model `Student Research Showcase`.
 
-```cmd
-dotnet run
-```
+## Manual
 
-Request:
+Perform these checks. Record date and actual result for each.
 
-```text
-/Events
-```
+| Scenario | Prerequisites, inputs, and steps | Expected result and evidence |
+| --- | --- | --- |
+| Root page | Start MVC application; request `/` | Home content and shared header, navigation, and footer render |
+| Events route | Select **Events** or request `/Events` directly | Events View renders `Student Research Showcase` in the temporary preview |
+| HTML contract | Open browser DevTools → Network; reload `/Events`; inspect document | Successful HTML response, not Razor source code |
+| Static CSS | Inspect the `/css/site.css` request and rendered page | Stylesheet loads; content width, header, and footer styles apply |
+| Shared navigation | Follow Home → Events → Privacy → Home links | Each link reaches its intended page |
+| Keyboard access | Press **Tab** and **Shift+Tab** through the links, then **Enter** on Events | Links are operable without a mouse and focus remains visible |
+| Narrow viewport | Inspect website at a typical mobile width (in *Developer Tools* select *Toggle device toolbar* or press CTRL+SHIFT+M) | Normal page content remains readable without horizontal scrolling |
+| Invalid action | Request `/Events/NoSuchAction` | Normal routing does not find an action; a controlled 404 is expected |
+| Diagnostic trace | Trigger `/Events`; inspect log or breakpoint in `Index()` | Controller action is reached and the title value can be observed |
 
-### What You Should See
+For browser-side accessibility checks, inspect the rendered `<nav aria-label="Primary navigation">`, `<main>`, and heading structure. For diagnostics, place a breakpoint in `EventsController.Index()` or inspect the information-level log.
 
-The page should include:
+After correcting a failed scenario, repeat the corresponding check and record its actual outcome.
 
-```text
-Campus Events
-Temporary Event Preview
-Campus Welcome Mixer
-Student Center
-```
+## SRS Traceability Matrix Update with Evidence
 
-You should also see the controller log message in the application output:
+Maintain the traceability matrix at the end of the SRS. It connects the implemented solution and tests to SRS references and observed verification results.
 
-```text
-Handling request for the CEMS Events page.
-```
+The statuses presented below are provisional; enter observed results and revise each status after running the checks.
 
-### Why This Matters
+| Requirement / Reference | Implementation / Artifact | Verification / Evidence | Status | Notes |
+| --- | --- | --- | --- | --- |
+| SRS §3.1‑3.2 | `Program.cs`, MVC project, `wwwroot/css/site.css`, `tests/CampusEvents.Tests`, Git repository | Not executed; record build, test, and staged-diff results | **PARTIAL** | MVC architecture contributes to the broader design constraints; record remaining SRS work |
+| SRS §9.2 | `GET /Events` → controller → Razor → HTML | Not executed; record response status and `Content-Type` from browser Network tools | **IMPLEMENTED—UNVERIFIED** | Update to `VERIFIED` when the relevant HTML response has been observed |
 
-You now have a real MVC vertical slice:
+**Evidence context:** Run `dotnet build` and `dotnet test`, record the test results, and compare the manual inspector output with the expected scenarios. Both are necessary to evidence that requirements have been implemented and verified.
 
-```text
-GET /Events
-   ↓
-EventsController.Index()
-   ↓
-Views/Events/Index.cshtml
-   ↓
-HTML response
-```
+Confirm that your project builds, passes all tests, and runs without errors.
 
-The event title is still hard-coded directly in the View. The next step moves that title to the controller so you can see data travel from C# into Razor.
-
-### 6.3 Pass a value from the controller to the View
-
-You are not creating a CEMS `Event` class yet. Instead, use one `string`.
-
-This lets you learn the **controller/View model contract** without introducing domain modeling yet:
-
-```text
-controller supplies a value of some type
-        ↓
-View declares the type it expects
-        ↓
-the two types must agree
-```
-
-For this lesson the contract is intentionally simple:
-
-```text
-controller supplies: string
-View declares:       @model string
-```
-
-Later lessons will keep the same idea while replacing `string` with collections, entities, and page-specific View Models.
-
-### File: `Controllers/EventsController.cs`
-
-Change only the `Index()` action to:
-
-```csharp
-public IActionResult Index()
-{
-    _logger.LogInformation("Handling request for the CEMS Events page.");
-
-    var featuredEventTitle = "Campus Welcome Mixer";
-
-    return View(model: featuredEventTitle);
-}
-```
-
-The action now creates a value on the server and passes it to the View.
-
-The call:
-
-```csharp
-return View(model: featuredEventTitle);
-```
-
-returns a View result and supplies the string as the View's model. Here, lowercase `model:` is the name of the C# method parameter receiving `featuredEventTitle`.
-
-Now update the Razor View so it declares the type it expects.
-
-### File: `Views/Events/Index.cshtml`
-
-```cshtml
-@model string
-
-@{
-    ViewData["Title"] = "Events";
-}
-
-<h1>Campus Events</h1>
-
-<p>
-    This is the first CEMS Events page. Event information is temporary in
-    Lesson 1 and is not loaded from a database.
-</p>
-
-<section>
-    <h2>Temporary Event Preview</h2>
-    <p><strong>@Model</strong></p>
-    <p>Student Center</p>
-</section>
-```
-
-The directive:
-
-```cshtml
-@model string
-```
-
-means that this Razor View expects its model to be a `string`. Lowercase `@model` is a **Razor directive** that declares the model type; it does not receive the model value.
-
-The expression:
-
-```cshtml
-@Model
-```
-
-reads the string that the controller passed to the View. Uppercase `@Model` is the **C# property** that exposes that value inside the View.
-
-> **Naming note:** `model:`, `@model`, and `@Model` are three different things. Think of this as a small ASP.NET naming hangover—as if the framework designers had one drink too many before choosing three nearly identical labels—or, perhaps more charitably, as the result of naming important framework mechanisms before anyone had enough coffee. Capitalization matters.
->
-> - `model:` — C# named argument that supplies the value to `View(...)`
-> - `@model` — Razor directive that declares the model type
-> - `@Model` — C# property used in the View to access the model value
-
-Follow the **value** from start to finish:
-
-```text
-var featuredEventTitle = "Campus Welcome Mixer"
-        ↓
-return View(model: featuredEventTitle)
-        ↓
-View's Model property receives the string
-        ↓
-@Model
-        ↓
-rendered HTML
-```
-
-Separately, `@model string` declares that the View's `Model` property has type `string`. It is not a step through which the value flows.
-
-The controller/View contract can therefore be summarized as:
-
-```text
-value:
-"Campus Welcome Mixer"
-
-runtime type supplied by controller:
-string
-
-type expected by Razor View:
-@model string
-
-result:
-compatible contract
-```
-
-If the controller later supplies a different type, the View must evolve to expect that type. You will see exactly that transition in Lesson 2 when the page stops receiving one temporary string and starts receiving persisted Event data.
-
-### Run It
-
-Save both files and refresh `/Events`.
-
-### What You Should See
-
-The visible title still says:
-
-```text
-Campus Welcome Mixer
-```
-
-The output looks similar, but the source of the value changed. The controller now supplies the title, and the View decides how to render it.
-
----
-
-## 7. Add Events to the Site Navigation
-
-Typing `/Events` works, but a normal application should provide navigation.
-
-Open the shared layout and add an Events item beside the existing generated navigation links.
-
-### File: `Views/Shared/_Layout.cshtml`
-
-Add this list item to the main navigation list:
-
-```cshtml
-<li class="nav-item">
-    <a class="nav-link text-dark"
-       asp-controller="Events"
-       asp-action="Index">Events</a>
-</li>
-```
-
-Do not replace the rest of the generated layout.
-
-The attributes:
-
-```cshtml
-asp-controller="Events"
-asp-action="Index"
-```
-
-are MVC Tag Helper attributes. They describe the controller/action target rather than hard-coding a URL string.
-
-Conceptually:
-
-```text
-View expresses destination:
-EventsController.Index()
-        ↓
-MVC routing participates in URL generation
-        ↓
-browser receives an ordinary href
-```
-
-That distinction matters. The Razor source expresses the MVC destination; the rendered HTML still contains a normal link that a browser understands.
-
-A useful way to think about it is:
-
-```text
-hard-coded URL
-    → View assumes the URL shape directly
-
-controller/action Tag Helper
-    → View names the MVC destination
-      and routing helps generate the URL
-```
-
-The generated `_ViewImports.cshtml` normally enables the standard MVC Tag Helpers.
-
-### Run It
-
-Refresh the application and click **Events** in the navigation bar.
-
-### What You Should See
-
-The browser should navigate to the Events page, and the controller log message should appear again.
-
-The link proves that shared navigation, routing, controller selection, and Razor rendering are working together.
-
----
-
-## 8. Establish Git and Safe Configuration Habits
-
-You now have a meaningful working state worth recording in source control.
-
-Git will appear throughout the project, so use one simple mental model:
-
-```text
-working files
-    ↓ git add
-staging area
-    ↓ git commit
-repository history
-```
-
-`git status` lets you inspect where files currently stand. The staging area lets you choose what will become part of the next commit, and a commit records a project state in repository history.
-
-This lesson does not attempt to teach every Git feature. The goal is to establish a safe, repeatable project workflow before the codebase becomes more complex.
-
-### Create a standard .NET `.gitignore`
-
-From the `CampusEvents` directory, run:
-
-```cmd
-dotnet new gitignore
-```
-
-This creates a standard ignore file for generated build and IDE artifacts.
-
-### Initialize the repository
-
-Run:
-
-```cmd
-git init
-```
-
-Stage the current files:
+Stage and commit:
 
 ```cmd
 git add .
+git commit -m "Lesson 01: Implemented and Verified"
 ```
 
-Commit the working MVC shell:
+**NOTE:** Never stage or commit source code that does not build, fails a test, or runs with errors.
 
-```cmd
-git commit -m "Create CEMS MVC shell and Events page"
-```
+# Exercises
 
-### Connect a GitHub remote if your course uses one
+## Exercise: independently trace another page
 
-If you have been given or have created a GitHub repository for the project, connect it with commands such as:
+**Purpose and expected outcome:** Explain a second browser request from URL through routing, request handling, template discovery, and HTTP response. Your trace should identify each boundary using actual project files and an observable response.
 
-```cmd
-git remote add origin https://github.com/your-account/campus-events.git
-git branch -M main
-git push -u origin main
-```
+**Task:** Trace `/Home/Privacy` from the browser URL through its controller action, View-location convention, shared layout, and generated HTML. Inspect the document response in the browser Network panel.
 
-Replace the example URL with the actual repository URL for your project.
+**Challenge:** Compare this response with the HTTP behavior expected from a redirect action.
 
-### Configuration safety
+## Exercise: diagnose a contract failure
 
-The project does not need secret credentials yet, but establish this rule now:
+**Purpose and expected outcome:** Isolate a controller/View contract mismatch by moving from a browser symptom to the code boundary responsible.
 
-> **Do not commit passwords, production connection strings, API keys, access tokens, or other secrets.**
+**Task:** Temporarily replace `@model string` with an incompatible type `@model int` in `src/CampusEvents/Views/Events/Index.cshtml`. Request `/Events`, inspect the Development error and logs, then restore the original declaration.
 
-`appsettings.json` and environment-specific configuration files can contain ordinary non-secret settings. Sensitive values should use the approved configuration approach when they are introduced later.
+**Challenge:** Design a request-level check for the observed View-rendering failure.
 
----
+## Exercise: challenge a test assertion
 
-## 9. Guided Practice — Observe the Request and Change the Temporary Event
+**Purpose and expected outcome:** Interpret failing assertions and show how controlled test inputs support repeatable evidence.
 
-This practice uses the code you have already built. You are not designing a new feature.
+**Task:** Temporarily change the expected title in `tests/CampusEvents.Tests/EventsControllerTests.cs` to an incorrect value. Run `dotnet test`, inspect the assertion failure, restore `Student Research Showcase`, and run the test again.
 
-### 9.1 Observe `EventsController.Index()` running
+**Challenge:** Suppose that the title is officially updated. Change the test so it does not fail.
 
-Use either a breakpoint or the existing log message.
+# Troubleshooting Common Problems
 
-#### Option A — Breakpoint
+Investigate from the observable symptom toward the relevant boundary. Check the actual URL, terminal output, route, file location, View model type, and staged changes before making broad edits.
 
-Place a breakpoint inside:
+| Symptom | Likely cause / diagnosis | Correction / verification |
+| --- | --- | --- |
+| `/Events` returns 404 | Controller/action name or conventional route mismatch | Confirm `EventsController.Index()` and default route; request `/Events` again |
+| View-not-found error | Missing or misnamed `Views/Events/Index.cshtml` | Correct folder and filename capitalization; rebuild and reload |
+| View model type exception | Action passes `string`, View declares incompatible `@model` | Restore `@model string`; verify with browser and test |
+| Literal/missing title | Confusion among `model:`, `@model`, and `@Model` | Trace value from `View(model: ...)` into `@Model`; reload |
+| Events navigation does not work | Tag Helpers disabled or wrong `asp-controller` / `asp-action` | Inspect `_ViewImports.cshtml` and rendered `href`; follow link |
+| Page has no CEMS styling | Incorrect stylesheet URL or static-file middleware | Inspect `/css/site.css` in Network and `UseStaticFiles()` in `Program.cs`; reload |
+| Port differs from an example | Local development endpoints are dynamically configured | Use the URL printed by the running server |
+| Solution/project not found | Terminal is in inner project or incorrect directory | Change directory to solution root; add `--project src/CampusEvents` to `dotnet` command |
+| Test is not discovered | Missing test package, incorrect test attributes, or test project configuration | Confirm `[Fact]` on the test method, inspect the test project packages, and rerun `dotnet test` |
+| Test fails compilation | Missing project reference or C# compilation errors | Check `.csproj` and run `dotnet add tests/CampusEvents.Tests reference src/CampusEvents` if project reference is missing |
+| Test fails an assertion | Controller-supplied title differs from the expected string | Restore `Student Research Showcase` and rerun the affected test |
+| Logger output is absent | Log filtering or the action was not executed | Inspect the information-level logging statement and configured log level; request `/Events` again |
+| Git tracks generated files such as `obj` and `bin` folders | Missing ignore pattern or files tracked before an ignore rule was added | Inspect `.gitignore`, correct the patterns, and remove unwanted tracked artifacts from the index; keep secrets out of commits |
+| Push fails or remote already exists | Remote not set (started solution from an empty folder and not from a GitHub repository clone) | Create CampusEvents repository in GitHub, then run `git remote add origin <github-repo-url>`; change `add` to `set-url` if remote already exists |
 
-```csharp
-public IActionResult Index()
-```
+Avoid “fixes” that alter unrelated application behavior. After correcting a failure, rerun the smallest affected check and any existing regression tests.
 
-Run the application under the debugger and request:
+# Checking Your Understanding
 
-```text
-/Events
-```
+<details><summary>How do product requirements, design constraints, and implementation choices differ?</summary>
 
-When execution pauses, identify:
-
-- the `EventsController` class;
-- the `Index()` action;
-- the local `featuredEventTitle` variable;
-- the `return View(...)` line.
-
-Continue execution and watch the page render.
-
-#### Option B — Logging
-
-Run the application normally and watch the console while requesting `/Events`.
-
-You should see:
-
-```text
-Handling request for the CEMS Events page.
-```
-
-The message is evidence that the browser request caused the server-side action to execute.
-
-### 9.2 Trace the current value
-
-Before changing anything, find this controller line:
-
-```csharp
-var featuredEventTitle = "Campus Welcome Mixer";
-```
-
-Then find this Razor expression:
-
-```cshtml
-<strong>@Model</strong>
-```
-
-The value flow is:
-
-```text
-controller creates string
-        ↓
-controller passes string through View(model: ...)
-        ↓
-View's Model property contains the string
-        ↓
-Razor inserts @Model into HTML
-```
-
-Remember: `@model string` declares the type of `Model`; it does not receive the value.
-
-### 9.3 Make the bounded change
-
-Now make the required small change.
-
-### File: `Controllers/EventsController.cs`
-
-Change:
-
-```csharp
-var featuredEventTitle = "Campus Welcome Mixer";
-```
-
-to:
-
-```csharp
-var featuredEventTitle = "Library Research Night";
-```
-
-Before refreshing the browser, predict the result. You are changing the controller value, not the Razor markup.
-
-Refresh `/Events`.
-
-### What You Should See
-
-The page should now display:
-
-```text
-Library Research Night
-```
-
-The View did not need to change because it still renders `@Model`.
-
-This is the final temporary title for Lesson 1.
-
-### Why This Matters
-
-This small change demonstrates an important separation:
-
-- the controller supplies data;
-- the View controls presentation;
-- Razor combines the two on the server;
-- the browser receives the resulting HTML.
-
----
-
-## 10. Trace `/Events` from Browser to HTML
-
-With the final Lesson 1 value in place, trace the request from beginning to end.
-
-```text
-Browser requests /Events
-        ↓
-ASP.NET Core receives the request
-        ↓
-Routing selects EventsController.Index()
-        ↓
-Index() creates/passes "Library Research Night"
-        ↓
-MVC renders Views/Events/Index.cshtml
-        ↓
-Razor generates HTML on the server
-        ↓
-HTML response is returned to the browser
-```
-
-Here is what each step means.
-
-### 1. The browser requests `/Events`
-
-The browser sends an HTTP GET request. It does not request a `.cshtml` file and does not execute any C#.
-
-### 2. ASP.NET Core receives the request
-
-The request enters the pipeline configured in `Program.cs`.
-
-### 3. Conventional routing selects the controller and action
-
-The route is:
-
-```text
-{controller=Home}/{action=Index}/{id?}
-```
-
-For `/Events`, MVC determines:
-
-```text
-controller = Events
-action = Index
-```
-
-That selects:
-
-```text
-EventsController.Index()
-```
-
-### 4. The action creates and passes the value
-
-The final action contains:
-
-```csharp
-public IActionResult Index()
-{
-    _logger.LogInformation("Handling request for the CEMS Events page.");
-
-    var featuredEventTitle = "Library Research Night";
-
-    return View(model: featuredEventTitle);
-}
-```
-
-The controller creates the string and passes it to the View.
-
-### 5. MVC locates the Razor View
-
-Because the action returns `View()` without naming a different View, the normal convention points to:
-
-```text
-Views/Events/Index.cshtml
-```
-
-### 6. Razor generates HTML
-
-The View declares the type of its model with:
-
-```cshtml
-@model string
-```
-
-and accesses the model value through:
-
-```cshtml
-<strong>@Model</strong>
-```
-
-Razor runs on the server and inserts `Library Research Night` into the generated HTML.
-
-### 7. The browser receives HTML
-
-The browser receives the rendered response. It does not receive the C# controller source and it does not receive a JSON object.
-
-That is why this action:
-
-```csharp
-return View(model: featuredEventTitle);
-```
-
-produces an HTML page: it returns a View result, MVC renders the Razor View, and Razor produces HTML.
-
-At this point you can also place the major framework mechanisms in order:
-
-```text
-startup:
-AddControllersWithViews()
-    → MVC services are available
-
-request:
-middleware pipeline
-    ↓
-routing
-    ↓
-EventsController.Index()
-
-controller construction:
-dependency injection supplies ILogger<EventsController>
-
-action result:
-return View(model: featuredEventTitle)
-    ↓
-View-location convention finds Views/Events/Index.cshtml
-    ↓
-Razor uses the strongly typed model contract
-    ↓
-HTML response
-```
-
-No database participates in this request. The title exists only as a temporary string created during the request.
-
----
-
-## 11. Check Your Understanding
-
-Answer these questions using the code you just worked with.
-
-<details>
-<summary>1. What causes <code>EventsController.Index()</code> to run when the browser requests <code>/Events</code>?</summary>
-
-The request enters the ASP.NET Core pipeline, and the conventional route matches the URL to the `Events` controller and its default `Index` action. MVC then selects `EventsController.Index()` to handle the request.
+Product requirements specify observable behavior; constraints limit permissible designs; implementation choices select an approach within those limits.
 
 </details>
 
-<details>
-<summary>2. How is <code>AddControllersWithViews()</code> different from <code>MapControllerRoute(...)</code>?</summary>
+<details><summary>Why is routing to an action different from locating a View?</summary>
 
-`AddControllersWithViews()` registers the MVC controller and Razor View services the application needs.
-
-`MapControllerRoute(...)` defines a conventional route pattern that helps incoming requests reach controller actions.
-
-One prepares MVC framework capabilities; the other maps request URLs to endpoints.
+Routing maps an HTTP request to code that can handle it. View-location conventions locate a rendering template **after** an action requests a View result. Route selection can succeed even when its View is missing.
 
 </details>
 
-<details>
-<summary>3. What does dependency injection contribute when ASP.NET Core creates <code>EventsController</code>?</summary>
+<details><summary>What does the browser receive after a server-rendered request?</summary>
 
-`EventsController` declares that it needs an `ILogger<EventsController>` through its constructor. ASP.NET Core creates the controller and uses dependency injection to supply a compatible logger instead of requiring the controller to construct the logging service itself.
-
-</details>
-
-<details>
-<summary>4. Why does <code>EventsController</code> inherit from <code>Controller</code>?</summary>
-
-Inheriting from `Controller` gives `EventsController` MVC controller behavior, including access to methods such as `View(...)` that create results for Razor Views.
+It receives an HTTP response containing HTML generated by the server; the browser renders that HTML and associated styles.
 
 </details>
 
-<details>
-<summary>5. What does <code>return View(model: featuredEventTitle)</code> do conceptually?</summary>
+<details><summary>What distinction exists between `model:`, `@model`, and `@Model`?</summary>
 
-It creates a View result and supplies `featuredEventTitle` as the model value that the Razor View will receive. MVC then locates the appropriate View and renders that model into HTML.
-
-</details>
-
-<details>
-<summary>6. What is the difference between lowercase <code>@model</code> and uppercase <code>@Model</code>?</summary>
-
-`@model` is a Razor directive that declares the type the View expects.
-
-`@Model` is the C# property used inside the View to access the actual model value supplied by the controller.
+`model:` is a named C# argument that supplies a value to `View(...)`; `@model` declares the Razor View's expected type; `@Model` reads the supplied value during server rendering.
 
 </details>
 
-<details>
-<summary>7. In <code>return View(model: featuredEventTitle)</code>, what does the lowercase <code>model:</code> label represent?</summary>
+<details><summary>How does dependency injection improve the controller's design?</summary>
 
-`model:` is a C# named argument. It identifies the `View(...)` method parameter that receives `featuredEventTitle`.
-
-It is separate from Razor's `@model` directive and the View's `@Model` property.
+The controller declares required supporting services without constructing their infrastructure. This separates responsibilities and allows a test to substitute an appropriate dependency, such as a no-op logger.
 
 </details>
 
-<details>
-<summary>8. What is the controller/View model contract in this lesson?</summary>
+<details><summary>Which aspects of the solution should be tested automatically versus manually?</summary>
 
-The controller supplies a value of type `string`, and the Razor View declares `@model string`.
-
-The supplied runtime value and the type expected by the View therefore agree.
+Automate repetitive, deterministic checks that are costly to perform manually, such as logic, integrations, edge cases, and regressions. Manually assess aspects requiring human judgment, such as usability, visual quality, accessibility, and intuitive workflows.
 
 </details>
 
-<details>
-<summary>9. How is routing to <code>EventsController.Index()</code> different from MVC locating <code>Views/Events/Index.cshtml</code>?</summary>
+<details><summary>When is a project ready to be committed to Git?</summary>
 
-Routing decides which controller action handles the incoming request.
-
-After `EventsController.Index()` returns `View()`, MVC uses its View-location conventions to locate the Razor file associated with that controller and action.
-
-These are two different stages of the request.
+When the project builds successfully, all tests pass, and the application runs without errors.
 
 </details>
 
-<details>
-<summary>10. Where does Razor execute: in the browser or on the server?</summary>
+<details><summary>How do automated tests support software verification and requirements traceability?</summary>
 
-Razor executes on the server. It combines the View template with server-side model data and produces HTML.
-
-The browser receives the rendered HTML rather than executing the Razor or C# source.
+Automated tests use assertions to compare actual results with expected results. For example, a test might verify that requesting a nonexistent ID returns an HTTP 404 response. Tests pass when expectations are met and fail otherwise. They can be rerun as **regression tests** to detect previously working functionality that breaks after code changes. Linking test cases and their results to requirements in a **Requirements Traceability Matrix (RTM)** helps track which requirements have been implemented, tested, and successfully verified.
 
 </details>
 
-<details>
-<summary>11. What does the browser ultimately receive from the <code>/Events</code> request?</summary>
+# Summary
 
-The browser receives an HTTP response containing rendered HTML.
+You learned how to translate software requirements into an architectural design while distinguishing what an application must do from how you choose to implement it. You traced how an HTTP request travels from the browser through routing and controller execution to a view that generates the response. You also explored the distinct responsibilities of the composition root, controllers, and views, including service registration, dependency injection, endpoint routing, request handling, model binding, validation, and presentation. Finally, you learned how dependency injection allows components to use services without having to construct or manage them.
 
-It does not receive the controller's C# source code or the Razor processing instructions.
+You also learned how automated tests check specific behaviors, while manual testing helps identify problems that automated tests may miss. You practiced finding and fixing errors and explored how clear HTML structure, keyboard navigation, and responsive design improve the user experience.
 
-</details>
+Finally, you learned how to organize project files, manage configuration safely, commit changes regularly, and document evidence to make software easier to develop, test, and maintain. These practices are useful across different programming languages, frameworks, and development environments.
 
-<details>
-<summary>12. Why is the temporary Events page not yet the real CEMS event catalog?</summary>
+# Checkpoint
 
-The MVC request/render cycle is real, but the Event data is still a temporary server-side string created during the request.
+**Inherited baseline:** Lesson 0 established the approved CEMS SRS, including actors, system behavior, business rules, quality requirements, and architectural constraints.
 
-No persisted Event model or database-backed catalog exists yet.
+**New in this lesson:**
 
-</details>
+- **Application:** A running MVC application renders Home, Privacy, and Events through conventional routing, shared layout, and project-owned CSS. `EventsController.Index()` supplies `Student Research Showcase` to a Razor View.
+- **Testing and traceability:** An xUnit test project includes the Events controller contract test, alongside a maintained SRS traceability record.
+- **Repository:** A solution containing the application and test projects, a `.gitignore`, a setup README, and reviewed Git commits establishes a reproducible development checkpoint.
 
-<details>
-<summary>13. If you changed the controller string again but left <code>&lt;strong&gt;@Model&lt;/strong&gt;</code> unchanged, what would you expect to happen?</summary>
+# Next Lesson Preview
 
-The page would display the new string supplied by the controller.
+Lesson 2, **Relational Data and the Public Event Catalog**, introduces relational entities, Entity Framework Core migrations, Development seed data, and queries for Published upcoming Events. You will display persisted Event records in a public catalog and a Details page.
 
-The Razor markup would not need to change because it still renders whatever string value is available through `@Model`.
+# Appendix
 
-</details>
+## From requirements to design decisions
 
----
+A **functional requirement** describes a behavior users or systems need. A **non-functional requirement** describes a quality or condition under which behavior must work. A **design constraint** restricts the available technologies or architectural choices. An **implementation decision** chooses a specific approach within those constraints.
 
-## 12. Common Mistakes
+For example, *“visitors can browse Published upcoming Events”* is required behavior, and *“use server-rendered MVC and Razor”* is a design constraint. Integrating additional frameworks or libraries or employing architectural or design patterns, as well as, selecting which folder structure, file name and organization, variable naming conventions to follow — as long as they are not specified in the SRS — are considered implementation decisions. These categories help you identify which choices must satisfy the approved specification and which choices you can justify through engineering judgment.
 
-### `/Events` returns a View-not-found error
+Translate each SRS requirement into a design by identifying the actor, triggering input, observable result, relevant constraints, and evidence needed to decide whether the behavior works. Keep that connection with the SRS visible as the project expands so feature work does not drift from the approved product scope.
 
-Check the View path:
+## Rendering and Navigation Strategies
 
-```text
-Views/Events/Index.cshtml
-```
+CEMS uses **server-side rendering (SSR)** and **full-page navigation**. When a user clicks **Events**, the browser requests `/Events`, the server generates HTML, and the browser displays the page.
 
-MVC uses the controller and action names to locate the conventional View path.
+Other strategies and related techniques are available depending on the application's requirements.
 
-If the controller action is running—you can see the log message—but MVC reports that the View cannot be found, routing has already done its job. The problem is now in View selection/location, not in the route that selected the action.
+### Rendering Strategies
 
-### `/Events` returns 404
+Rendering determines where and how page content is generated.
 
-Check that:
+| Strategy | Short Description / Related Techniques | Advantages / When to Use | Disadvantages / When to Avoid |
+|---|---|---|---|
+| **Server-Side Rendering (SSR)** | The server generates HTML and sends it to the browser. **Streaming SSR** sends HTML in parts as they become ready. | Good for data-driven pages, traditional web applications, and straightforward navigation. Streaming can improve perceived loading speed. | Requires server processing for each uncached request. |
+| **Client-Side Rendering (CSR)** | JavaScript generates page content in the browser, often using frameworks such as React or Angular. | Good for highly interactive applications with frequent screen updates. | Depends heavily on JavaScript; initial loading and state management can be more complex. |
+| **Static-Site Generation (SSG)** | HTML pages are generated before users request them. **Incremental regeneration** can update generated pages periodically or when triggered. | Fast and efficient for content that rarely changes. | Less suitable for personalized or frequently changing content. |
+| **Hybrid Rendering** | Combines server-generated HTML with browser-based interactions. Related techniques include **hydration**, **islands architecture**, **selective hydration**, **resumability**, and **progressive enhancement**. | Useful when pages need both readily available content and interactive features. Islands limit JavaScript to selected components. | Adds complexity because rendering, interactivity, and state must be coordinated. |
 
-- the class is named `EventsController`;
-- it inherits from `Controller`;
-- `Index()` is public;
-- the default conventional route still exists in `Program.cs`.
+### Navigation Strategies
 
-### The View reports a model-type error
+Navigation determines how the browser updates the displayed content when users follow links or perform actions.
 
-The View expects:
+| Strategy | Short Description / Related Techniques | Advantages / When to Use | Disadvantages / When to Avoid |
+|---|---|---|---|
+| **Full-Page Navigation** | The browser requests and loads a complete HTML document using ordinary links or forms. | Simple, reliable, accessible, and well suited to traditional websites. | Reloads the document during navigation. |
+| **Client-Side Navigation** | JavaScript changes the displayed page without reloading the entire document. **Client-side routing**, **prefetching**, and **view transitions** are related techniques. | Useful for highly interactive applications that need smooth transitions and persistent browser state. | Requires additional code to manage navigation history, accessibility, and errors. |
+| **Partial-Page Updates** | Only a selected section of the page is updated. **HTML-over-the-wire** sends server-generated HTML fragments; other approaches use JSON and JavaScript. | Efficient for filters, search results, and other localized updates. | Requires additional logic to update content and maintain accessibility. |
 
-```cshtml
-@model string
-```
+### Choosing a Strategy
 
-The controller must therefore pass a string:
+Choose the simplest approach that meets the application's requirements. Strategies can be combined; for example, a server-rendered page can use JavaScript to update search results without reloading the entire page.
 
-```csharp
-return View(model: featuredEventTitle);
-```
-
-A different model type would require a corresponding View change.
-
-### `@model` and `@Model` look like the same thing
-
-They are different and case-sensitive:
-
-```text
-@model   = Razor directive that declares the model type
-@Model   = C# property that accesses the model value
-```
-
-The `model:` in `View(model: featuredEventTitle)` is yet another use: it is the C# parameter name used to supply that value.
-
-### The Events navigation link does not work
-
-Check the Tag Helper target:
-
-```cshtml
-asp-controller="Events"
-asp-action="Index"
-```
-
-Also make sure the generated MVC Tag Helpers remain enabled through `_ViewImports.cshtml`.
-
-### The local URL uses a different port
-
-Use the URL printed by `dotnet run` or shown by your development environment. Do not assume a fixed port number.
-
-### You expect the browser to receive C#
-
-The browser receives rendered HTML. The C# controller and Razor processing execute on the server.
-
----
-
-## 13. What You Built
-
-You started with no CEMS application and finished with a working ASP.NET Core MVC vertical slice.
-
-Your application now has:
-
-- the `CampusEvents` project and root namespace;
-- MVC controller and Razor View services;
-- the conventional route `{controller=Home}/{action=Index}/{id?}`;
-- `EventsController.Index()` handling `/Events`;
-- built-in logging supplied through dependency injection;
-- a `string` passed from the controller to a Razor View;
-- `Views/Events/Index.cshtml` rendering the string as HTML;
-- shared navigation that links to Events;
-- a Git repository and standard `.gitignore`;
-- safe configuration habits established before secrets are needed.
-
-The final temporary value is:
-
-```csharp
-var featuredEventTitle = "Library Research Night";
-```
-
-The Events page is still intentionally simple and non-persistent. It gives you a concrete request/render cycle that later project work can extend.
-
-The main architecture you should carry forward is:
-
-```text
-Program.cs startup
-    ├─ register services
-    ├─ build/configure middleware
-    └─ map routes
-
-GET /Events
-    ↓
-routing selects EventsController.Index()
-    ↓
-DI has supplied the controller's dependencies
-    ↓
-controller supplies a string model
-    ↓
-View-location convention finds Index.cshtml
-    ↓
-Razor renders the model into HTML
-    ↓
-browser receives the response
-```
-
-The route style itself will evolve later when the Organizer workflows create a real need for explicit attribute routes. The request/controller/View principles learned here will remain the same.
-
-### Final code checkpoint
-
-Use the following snapshots to confirm your Lesson 1 code state.
-
-#### `Program.cs`
-
-```csharp
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddControllersWithViews();
-
-var app = builder.Build();
-
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Home/Error");
-    app.UseHsts();
-}
-
-app.UseHttpsRedirection();
-app.UseStaticFiles();
-
-app.UseRouting();
-
-app.UseAuthorization();
-
-app.MapControllerRoute(
-    name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}");
-
-app.Run();
-```
-
-#### `Controllers/EventsController.cs`
-
-```csharp
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
-
-namespace CampusEvents.Controllers;
-
-public class EventsController : Controller
-{
-    private readonly ILogger<EventsController> _logger;
-
-    public EventsController(ILogger<EventsController> logger)
-    {
-        _logger = logger;
-    }
-
-    public IActionResult Index()
-    {
-        _logger.LogInformation("Handling request for the CEMS Events page.");
-
-        var featuredEventTitle = "Library Research Night";
-
-        return View(model: featuredEventTitle);
-    }
-}
-```
-
-#### `Views/Events/Index.cshtml`
-
-```cshtml
-@model string
-
-@{
-    ViewData["Title"] = "Events";
-}
-
-<h1>Campus Events</h1>
-
-<p>
-    This is the first CEMS Events page. Event information is temporary in
-    Lesson 1 and is not loaded from a database.
-</p>
-
-<section>
-    <h2>Temporary Event Preview</h2>
-    <p><strong>@Model</strong></p>
-    <p>Student Center</p>
-</section>
-```
-
-#### `Views/Shared/_Layout.cshtml` — Events navigation addition
-
-```cshtml
-<li class="nav-item">
-    <a class="nav-link text-dark"
-       asp-controller="Events"
-       asp-action="Index">Events</a>
-</li>
-```
-
-At this point, you should be able to explain the full path from a browser request for `/Events` to the HTML displayed on the screen. That request/render cycle is the foundation you will build on as CEMS gains real data and additional behavior.
+**For CEMS:** Server-side rendering and full-page navigation provide a straightforward foundation. Interactive features can be added later when needed.
