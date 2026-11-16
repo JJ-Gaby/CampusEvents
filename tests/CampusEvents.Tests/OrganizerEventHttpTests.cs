@@ -756,4 +756,369 @@ public async Task Lifecycle_ForgedRouteAndFields_PreserveForeignEvent(string act
 	Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 	Assert.Equal(before, EventFields(await ReadEventAsync(database, id)));
 }
+
+	[Theory]
+	[InlineData(0, false)]
+	[InlineData(-1, false)]
+	[InlineData(1, true)]
+	public async Task RegistrationCancellation_StartBoundaryAndCancelledEvent(int seconds, bool cancelled)
+	{
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		var clock = FixedClock();
+		using var host = CreateHost(database, clock);
+		var (ownerId, _) = await AccountsAsync(host);
+		var category = await CategoryAsync(database);
+		var eventId = await EventAsync(database, category, ownerId, "Cancellation Boundary",
+			cancelled ? EventStatus.Cancelled : EventStatus.Published);
+		await SetStartAsync(database, eventId, clock.GetLocalNow().DateTime.AddSeconds(seconds));
+		int registrationId;
+		await using (var setup = database.CreateContext())
+		{
+			var userId = await setup.Users.Where(u => u.Email == ParticipantEmail).Select(u => u.Id).SingleAsync();
+			var row = new Registration { UserId = userId, EventId = eventId,
+				CreatedAt = clock.GetLocalNow().DateTime.AddDays(-1) };
+			setup.Registrations.Add(row);
+			await setup.SaveChangesAsync();
+			registrationId = row.Id;
+		}
+		using var browser = Browser(host);
+		await SignInAsync(browser, ParticipantEmail);
+		Assert.Equal("/Registrations/Mine", Location(await RegistrationCommandAsync(browser,
+			$"/Registrations/Cancel/{registrationId}")).AbsolutePath);
+		var mine = await browser.GetAsync("/Registrations/Mine");
+		await AssertFeedbackAsync(mine, seconds <= 0 ? "error-message" : "status-message",
+			seconds <= 0 ? "alert" : "status", seconds <= 0
+				? "A Registration can be cancelled only before the Event begins."
+				: "Your Registration was cancelled");
+		await using var verify = database.CreateContext();
+		Assert.Equal(seconds <= 0, await verify.Registrations.AnyAsync(r => r.Id == registrationId));
+	}
+
+	[Fact]
+	public async Task Registration_DuplicateAndFullPosts_ReportFeedbackWithoutExtraRows()
+	{
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		using var host = CreateHost(database, FixedClock());
+		var (ownerId, _) = await AccountsAsync(host);
+		var category = await CategoryAsync(database);
+		var eventId = await EventAsync(database, category, ownerId, "Two Places", EventStatus.Published);
+		await using (var setup = database.CreateContext())
+		{
+			(await setup.Events.SingleAsync(e => e.Id == eventId)).Capacity = 2;
+			await setup.SaveChangesAsync();
+		}
+		using var participant = Browser(host);
+		using var other = Browser(host);
+		using var owner = Browser(host);
+		await SignInAsync(participant, ParticipantEmail);
+		await SignInAsync(other, OtherEmail);
+		await SignInAsync(owner, OwnerEmail);
+		Assert.Equal($"/Events/Details/{eventId}", Location(await RegistrationCommandAsync(participant,
+			$"/Registrations/Register/{eventId}")).AbsolutePath);
+		await RegistrationCommandAsync(participant, $"/Registrations/Register/{eventId}");
+		await AssertFeedbackAsync(await participant.GetAsync($"/Events/Details/{eventId}"),
+			"error-message", "alert", "You are already registered");
+		await RegistrationCommandAsync(other, $"/Registrations/Register/{eventId}");
+		await RegistrationCommandAsync(owner, $"/Registrations/Register/{eventId}");
+		await AssertFeedbackAsync(await owner.GetAsync($"/Events/Details/{eventId}"),
+			"error-message", "alert", "No places are currently available");
+		await using var verify = database.CreateContext();
+		Assert.Equal(2, await verify.Registrations.CountAsync(r => r.EventId == eventId));
+	}
+
+	private static async Task<HttpResponseMessage> RegistrationCommandAsync(HttpClient browser, string path)
+	{
+		var token = await FormTokenAsync(browser, "/Registrations/Mine");
+		return await SendFormAsync(browser, path, new Dictionary<string, string>
+		{
+			["__RequestVerificationToken"] = token
+		});
+	}
+
+	private static async Task AssertFeedbackAsync(
+		HttpResponseMessage response, string cssClass, string role, string expectedMessage)
+	{
+		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		var html = await response.Content.ReadAsStringAsync();
+		var pattern = $@"<p class=""{cssClass}"" role=""{role}"">(?<message>[\s\S]*?)</p>";
+		var match = Regex.Match(html, pattern);
+		Assert.True(match.Success, $"Expected a {role} message in the {cssClass} element.");
+		Assert.Contains(expectedMessage, WebUtility.HtmlDecode(match.Groups["message"].Value));
+	}
+
+	[Fact]
+	public async Task Register_ValidPost_PersistsAndConfirms()
+	{
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		using var host = CreateHost(database, FixedClock());
+		var (ownerId, _) = await AccountsAsync(host);
+		var categoryId = await CategoryAsync(database);
+		var eventId = await EventAsync(database, categoryId, ownerId, "Successful Registration", EventStatus.Published);
+		using var browser = Browser(host);
+		await SignInAsync(browser, ParticipantEmail);
+		var token = await FormTokenAsync(browser, $"/Events/Details/{eventId}");
+		var fields = new Dictionary<string, string> { ["__RequestVerificationToken"] = token };
+		var post = await SendFormAsync(browser, $"/Registrations/Register/{eventId}", fields);
+		Assert.Equal($"/Events/Details/{eventId}", Location(post).AbsolutePath);
+		var details = await browser.GetAsync($"/Events/Details/{eventId}");
+		Assert.Equal(HttpStatusCode.OK, details.StatusCode);
+		var html = await details.Content.ReadAsStringAsync();
+		await AssertFeedbackAsync(details, "status-message", "status", "Registration confirmed.");
+		Assert.Matches(@"Current registrations</dt>\s*<dd>1</dd>", html);
+		Assert.Matches(@"Remaining capacity</dt>\s*<dd>29</dd>", html);
+		Assert.Contains("You already have a current Registration", html);
+		await using var check = database.CreateContext();
+		var participantId = await check.Users.Where(user => user.Email == ParticipantEmail)
+			.Select(user => user.Id).SingleAsync();
+		var registration = await check.Registrations
+			.SingleAsync(row => row.UserId == participantId && row.EventId == eventId);
+		Assert.Equal(FixedClock().GetLocalNow().DateTime, registration.CreatedAt);
+		Assert.Equal(1, await check.Registrations.CountAsync(row => row.EventId == eventId));
+	}
+
+	[Fact]
+	public async Task Register_DraftPost_ExplainsUnavailability()
+	{
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		using var host = CreateHost(database, FixedClock());
+		var (ownerId, _) = await AccountsAsync(host);
+		var categoryId = await CategoryAsync(database);
+		var publishedId = await EventAsync(database, categoryId, ownerId, "Token Source", EventStatus.Published);
+		var draftId = await EventAsync(database, categoryId, ownerId, "Private Draft", EventStatus.Draft);
+		using var browser = Browser(host);
+		await SignInAsync(browser, ParticipantEmail);
+		var token = await FormTokenAsync(browser, $"/Events/Details/{publishedId}");
+		var fields = new Dictionary<string, string> { ["__RequestVerificationToken"] = token };
+		var post = await SendFormAsync(browser, $"/Registrations/Register/{draftId}", fields);
+		Assert.Equal("/Events", Location(post).AbsolutePath);
+		var catalog = await browser.GetAsync(Location(post).PathAndQuery);
+		await AssertFeedbackAsync(catalog, "error-message", "alert", "Registration is unavailable for this Event.");
+		var draftDetails = await browser.GetAsync($"/Events/Details/{draftId}");
+		Assert.Equal(HttpStatusCode.NotFound, draftDetails.StatusCode);
+		await using var check = database.CreateContext();
+		Assert.Equal(0, await check.Registrations.CountAsync(row => row.EventId == draftId));
+	}
+
+	[Fact]
+	public async Task Register_RequiresAuthenticationAndAntiforgery()
+	{
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		using var host = CreateHost(database, FixedClock());
+		var (ownerId, _) = await AccountsAsync(host);
+		var categoryId = await CategoryAsync(database);
+		var eventId = await EventAsync(database, categoryId, ownerId, "Protected Registration", EventStatus.Published);
+		using var anonymous = Browser(host);
+		var anonymousPost = await anonymous.PostAsync($"/Registrations/Register/{eventId}",
+			new FormUrlEncodedContent(new Dictionary<string, string>()));
+		Assert.Equal("/Account/Login", Location(anonymousPost).AbsolutePath);
+		using var participant = Browser(host);
+		await SignInAsync(participant, ParticipantEmail);
+		var noToken = await participant.PostAsync($"/Registrations/Register/{eventId}",
+			new FormUrlEncodedContent(new Dictionary<string, string>()));
+		Assert.Equal(HttpStatusCode.BadRequest, noToken.StatusCode);
+		await using var check = database.CreateContext();
+		Assert.Equal(0, await check.Registrations.CountAsync(r => r.EventId == eventId));
+	}
+
+	[Fact]
+	public async Task OwnCancellation_DoesNotDeleteAnotherUsersRegistration()
+	{
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		using var host = CreateHost(database, FixedClock());
+		var (ownerId, otherId) = await AccountsAsync(host);
+		var categoryId = await CategoryAsync(database);
+		var eventId = await EventAsync(database, categoryId, ownerId, "Cancellation Scope", EventStatus.Published);
+		int ownId;
+		int foreignId;
+		await using (var setup = database.CreateContext())
+		{
+			var participantId = await setup.Users.Where(u => u.Email == ParticipantEmail).Select(u => u.Id).SingleAsync();
+			var own = new Registration { UserId = participantId, EventId = eventId,
+				CreatedAt = FixedClock().GetLocalNow().DateTime };
+			var foreign = new Registration { UserId = otherId, EventId = eventId,
+				CreatedAt = FixedClock().GetLocalNow().DateTime };
+			setup.Registrations.AddRange(own, foreign);
+			await setup.SaveChangesAsync();
+			ownId = own.Id;
+			foreignId = foreign.Id;
+		}
+		using var browser = Browser(host);
+		await SignInAsync(browser, ParticipantEmail);
+		var token = await FormTokenAsync(browser, "/Registrations/Mine");
+		var fields = new Dictionary<string, string> { ["__RequestVerificationToken"] = token };
+		var foreignPost = await SendFormAsync(browser, $"/Registrations/Cancel/{foreignId}", fields);
+		Assert.Equal(HttpStatusCode.NotFound, foreignPost.StatusCode);
+		await using (var check = database.CreateContext())
+			Assert.Equal(2, await check.Registrations.CountAsync(r => r.EventId == eventId));
+		var ownPost = await SendFormAsync(browser, $"/Registrations/Cancel/{ownId}", fields);
+		Assert.Equal("/Registrations/Mine", Location(ownPost).AbsolutePath);
+		var mine = await browser.GetAsync("/Registrations/Mine");
+		await AssertFeedbackAsync(mine, "status-message", "status",
+			"Your Registration was cancelled and the place is available again.");
+		await using var verify = database.CreateContext();
+		Assert.Equal(1, await verify.Registrations.CountAsync(r => r.EventId == eventId));
+		Assert.True(await verify.Registrations.AnyAsync(r => r.Id == foreignId));
+	}
+
+	[Fact]
+	public async Task PublishedCapacity_BelowCurrentCount_IsRejected()
+	{
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		using var host = CreateHost(database, FixedClock());
+		var (ownerId, otherId) = await AccountsAsync(host);
+		var categoryId = await CategoryAsync(database);
+		var eventId = await EventAsync(database, categoryId, ownerId, "Capacity Floor", EventStatus.Published);
+		await using (var setup = database.CreateContext())
+		{
+			var participantId = await setup.Users.Where(u => u.Email == ParticipantEmail).Select(u => u.Id).SingleAsync();
+			setup.Registrations.AddRange(new Registration
+				{
+					UserId = participantId, EventId = eventId, CreatedAt = FixedClock().GetLocalNow().DateTime
+				},
+				new Registration { UserId = otherId, EventId = eventId, CreatedAt = FixedClock().GetLocalNow().DateTime });
+			await setup.SaveChangesAsync();
+		}
+		var before = EventFields(await ReadEventAsync(database, eventId));
+		using var browser = Browser(host);
+		await SignInAsync(browser, OwnerEmail);
+		var fields = ValidFields(categoryId, await FormTokenAsync(browser, $"/Events/Edit/{eventId}"));
+		fields["Capacity"] = "1";
+		var response = await SendFormAsync(browser, $"/Events/Edit/{eventId}", fields);
+		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		Assert.Contains("Capacity cannot be lower", await response.Content.ReadAsStringAsync());
+		Assert.Equal(before, EventFields(await ReadEventAsync(database, eventId)));
+	}
+
+	[Fact]
+	public async Task DraftDelete_WithRegistration_IsRefused()
+	{
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		using var host = CreateHost(database, FixedClock());
+		var (ownerId, _) = await AccountsAsync(host);
+		var categoryId = await CategoryAsync(database);
+		var eventId = await EventAsync(database, categoryId, ownerId, "Protected Draft", EventStatus.Draft);
+		await using (var setup = database.CreateContext())
+		{
+			var participantId = await setup.Users.Where(u => u.Email == ParticipantEmail).Select(u => u.Id).SingleAsync();
+			setup.Registrations.Add(new Registration { UserId = participantId, EventId = eventId,
+				CreatedAt = FixedClock().GetLocalNow().DateTime });
+			await setup.SaveChangesAsync();
+		}
+		using var browser = Browser(host);
+		await SignInAsync(browser, OwnerEmail);
+		var response = await CommandAsync(browser, $"/Events/DeleteConfirmed/{eventId}");
+		Assert.Equal("/Events/Manage", Location(response).AbsolutePath);
+		var manage = await browser.GetAsync("/Events/Manage");
+		await AssertFeedbackAsync(manage, "error-message", "alert",
+			"This Draft Event cannot be deleted while current Registrations exist.");
+		await using var check = database.CreateContext();
+		Assert.True(await check.Events.AnyAsync(e => e.Id == eventId));
+		Assert.True(await check.Registrations.AnyAsync(r => r.EventId == eventId));
+	}
+
+	private static async Task<int> PrepareCapacityCompetitionAsync(
+		IsolatedSqlServerDatabase database, int categoryId, string ownerId, string existingUserId)
+	{
+		var eventId = await EventAsync(database, categoryId, ownerId, "Capacity Coordination", EventStatus.Published);
+		await using var db = database.CreateContext();
+		var eventItem = await db.Events.SingleAsync(item => item.Id == eventId);
+		eventItem.Capacity = 2;
+		db.Registrations.Add(new Registration
+		{
+			UserId = existingUserId, EventId = eventId, CreatedAt = FixedClock().GetLocalNow().DateTime
+		});
+		await db.SaveChangesAsync();
+		return eventId;
+	}
+
+	[Theory]
+	[InlineData(true)]
+	[InlineData(false)]
+	public async Task RegisterAndCapacityEdit_OrderedWritesPreserveInvariant(bool registerFirst)
+	{
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		using var host = CreateHost(database, FixedClock());
+		var (ownerId, existingUserId) = await AccountsAsync(host);
+		var categoryId = await CategoryAsync(database);
+		var eventId = await PrepareCapacityCompetitionAsync(database, categoryId, ownerId, existingUserId);
+		using var organizer = Browser(host);
+		using var participant = Browser(host);
+		await SignInAsync(organizer, OwnerEmail);
+		await SignInAsync(participant, ParticipantEmail);
+		var edit = ValidFields(categoryId, await FormTokenAsync(organizer, $"/Events/Edit/{eventId}"));
+		edit["Capacity"] = "1";
+		var token = await FormTokenAsync(participant, $"/Events/Details/{eventId}");
+		var register = new Dictionary<string, string> { ["__RequestVerificationToken"] = token };
+		if (registerFirst)
+		{
+			var registrationResponse = await SendFormAsync(participant, $"/Registrations/Register/{eventId}", register);
+			Assert.Equal($"/Events/Details/{eventId}", Location(registrationResponse).AbsolutePath);
+			var registrationDetails = await participant.GetAsync($"/Events/Details/{eventId}");
+			await AssertFeedbackAsync(registrationDetails, "status-message", "status", "Registration confirmed.");
+			var editResponse = await SendFormAsync(organizer, $"/Events/Edit/{eventId}", edit);
+			Assert.Equal(HttpStatusCode.OK, editResponse.StatusCode);
+			Assert.Contains("Capacity cannot be lower", await editResponse.Content.ReadAsStringAsync());
+		}
+		else
+		{
+			var editResponse = await SendFormAsync(organizer, $"/Events/Edit/{eventId}", edit);
+			Assert.Equal("/Events/Manage", Location(editResponse).AbsolutePath);
+			var registrationResponse = await SendFormAsync(participant, $"/Registrations/Register/{eventId}", register);
+			Assert.Equal($"/Events/Details/{eventId}", Location(registrationResponse).AbsolutePath);
+			var registrationDetails = await participant.GetAsync($"/Events/Details/{eventId}");
+			await AssertFeedbackAsync(registrationDetails, "error-message", "alert", "No places are currently available.");
+		}
+		await using var check = database.CreateContext();
+		var count = await check.Registrations.CountAsync(row => row.EventId == eventId);
+		var capacity = await check.Events.Where(item => item.Id == eventId).Select(item => item.Capacity).SingleAsync();
+		Assert.Equal(registerFirst ? 2 : 1, count);
+		Assert.Equal(registerFirst ? 2 : 1, capacity);
+	}
+
+	[Fact]
+	public async Task RegisterAndCapacityEdit_CompetingPostsPreserveInvariant()
+	{
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		using var host = CreateHost(database, FixedClock());
+		var (ownerId, existingUserId) = await AccountsAsync(host);
+		var categoryId = await CategoryAsync(database);
+		var eventId = await PrepareCapacityCompetitionAsync(database, categoryId, ownerId, existingUserId);
+		using var organizer = Browser(host);
+		using var participant = Browser(host);
+		await SignInAsync(organizer, OwnerEmail);
+		await SignInAsync(participant, ParticipantEmail);
+		var edit = ValidFields(categoryId, await FormTokenAsync(organizer, $"/Events/Edit/{eventId}"));
+		edit["Capacity"] = "1";
+		var token = await FormTokenAsync(participant, $"/Events/Details/{eventId}");
+		var register = new Dictionary<string, string> { ["__RequestVerificationToken"] = token };
+		var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		async Task<HttpResponseMessage> SubmitAsync(HttpClient browser, string route, Dictionary<string, string> fields)
+		{
+			await gate.Task;
+			return await SendFormAsync(browser, route, fields);
+		}
+		var registrationTask = SubmitAsync(participant, $"/Registrations/Register/{eventId}", register);
+		var editTask = SubmitAsync(organizer, $"/Events/Edit/{eventId}", edit);
+		gate.SetResult(true);
+		var responses = await Task.WhenAll(registrationTask, editTask);
+		Assert.Equal($"/Events/Details/{eventId}", Location(responses[0]).AbsolutePath);
+		await using var check = database.CreateContext();
+		var count = await check.Registrations.CountAsync(row => row.EventId == eventId);
+		var capacity = await check.Events.Where(item => item.Id == eventId).Select(item => item.Capacity).SingleAsync();
+		Assert.True(count <= capacity);
+		var registrationDetails = await participant.GetAsync($"/Events/Details/{eventId}");
+		if (count == 2 && capacity == 2)
+		{
+			Assert.Equal(HttpStatusCode.OK, responses[1].StatusCode);
+			Assert.Contains("Capacity cannot be lower", await responses[1].Content.ReadAsStringAsync());
+			await AssertFeedbackAsync(registrationDetails, "status-message", "status", "Registration confirmed.");
+		}
+		else
+		{
+			Assert.Equal(1, count);
+			Assert.Equal(1, capacity);
+			Assert.Equal("/Events/Manage", Location(responses[1]).AbsolutePath);
+			await AssertFeedbackAsync(registrationDetails, "error-message", "alert", "No places are currently available.");
+		}
+	}
 }

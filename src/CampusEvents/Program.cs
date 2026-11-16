@@ -1,3 +1,4 @@
+using CampusEvents.Services;
 using CampusEvents.Data;
 using CampusEvents.Models;
 using Microsoft.AspNetCore.Identity;
@@ -30,6 +31,8 @@ builder.Services.ConfigureApplicationCookie(options =>
 	options.LoginPath = "/Account/Login";
 	options.AccessDeniedPath = "/Account/AccessDenied";
 });
+
+builder.Services.AddScoped<RegistrationService>();
 
 var app = builder.Build();
 
