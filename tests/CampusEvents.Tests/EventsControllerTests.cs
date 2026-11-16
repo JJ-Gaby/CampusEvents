@@ -40,7 +40,7 @@ public class EventsControllerTests
 		var httpContext = new DefaultHttpContext();
 		httpContext.Request.QueryString = new QueryString(queryString);
 
-		var controller = new EventsController(NullLogger<EventsController>.Instance, context, clock)
+		var controller = new EventsController(NullLogger<EventsController>.Instance, context, clock, null!)
 		{
 			ControllerContext = new ControllerContext
 			{

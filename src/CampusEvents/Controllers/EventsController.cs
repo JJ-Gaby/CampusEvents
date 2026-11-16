@@ -1,3 +1,7 @@
+using CampusEvents.Security;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using CampusEvents.Data;
 using CampusEvents.Models;
 using CampusEvents.ViewModels;
@@ -14,6 +18,7 @@ public class EventsController : Controller
 	private readonly ILogger<EventsController> _logger;
 	private readonly ApplicationDbContext _context;
 	private readonly TimeProvider _timeProvider;
+	private readonly UserManager<ApplicationUser> _userManager;
 	private const int DefaultPageSize = 10;
 
 	private static readonly int[] AllowedPageSizes =
@@ -21,11 +26,12 @@ public class EventsController : Controller
 		10, 25, 50
 	};
 
-	public EventsController(ILogger<EventsController> logger, ApplicationDbContext context, TimeProvider timeProvider)
+	public EventsController(ILogger<EventsController> logger, ApplicationDbContext context, TimeProvider timeProvider, UserManager<ApplicationUser> userManager)
 	{
 		_logger = logger;
 		_context = context;
 		_timeProvider = timeProvider;
+		_userManager = userManager;
 	}
 
 	public async Task<IActionResult> Index(string? search, int? categoryId, int? page, int? pageSize)
@@ -143,5 +149,134 @@ public class EventsController : Controller
 	{
 		Response.StatusCode = StatusCodes.Status404NotFound;
 		return View("EventNotFound");
+	}
+	[HttpGet]
+	[Authorize(Roles = RoleNames.Organizer)]
+	public async Task<IActionResult> Manage()
+	{
+		var organizer = await _userManager.GetUserAsync(User);
+		if (organizer is null) return Challenge();
+		var events = await _context.Events
+			.AsNoTracking()
+			.Include(item => item.Category)
+			.Where(item => item.OrganizerId == organizer.Id)
+			.OrderBy(item => item.StartDateTime)
+			.ThenBy(item => item.Id)
+			.ToListAsync();
+		return View(events);
+	}
+
+	private async Task PopulateCategoryOptionsAsync(EventInputModel model)
+	{
+		var categories = await _context.Categories
+			.AsNoTracking()
+			.OrderBy(category => category.Name)
+			.ToListAsync();
+		model.CategoryOptions = categories
+			.Select(category => new SelectListItem(category.Name, category.Id.ToString()))
+			.ToList();
+	}
+
+	private async Task ValidateCategoryAsync(EventInputModel model)
+	{
+		if (!model.CategoryId.HasValue || model.CategoryId.Value <= 0) return;
+		var exists = await _context.Categories
+			.AnyAsync(category => category.Id == model.CategoryId.Value);
+		if (!exists)
+		{
+			ModelState.AddModelError(nameof(model.CategoryId), "Select an existing Category.");
+		}
+	}
+
+	[HttpGet]
+	[Authorize(Roles = RoleNames.Organizer)]
+	public async Task<IActionResult> Create()
+	{
+		var model = new EventInputModel();
+		await PopulateCategoryOptionsAsync(model);
+		return View(model);
+	}
+
+	[HttpPost]
+	[Authorize(Roles = RoleNames.Organizer)]
+	[ValidateAntiForgeryToken]
+	public async Task<IActionResult> Create(EventInputModel model)
+	{
+		await ValidateCategoryAsync(model);
+		if (!ModelState.IsValid)
+		{
+			await PopulateCategoryOptionsAsync(model);
+			return View(model);
+		}
+
+		var organizer = await _userManager.GetUserAsync(User);
+		if (organizer is null) return Challenge();
+		var now = _timeProvider.GetLocalNow().DateTime;
+		var item = new Event
+		{
+			Title = model.Title.Trim(),
+			Description = model.Description.Trim(),
+			CategoryId = model.CategoryId!.Value,
+			Location = model.Location.Trim(),
+			StartDateTime = model.StartDateTime!.Value,
+			EndDateTime = model.EndDateTime!.Value,
+			Capacity = model.Capacity!.Value,
+			OrganizerId = organizer.Id,
+			Status = EventStatus.Draft,
+			CreatedAt = now
+		};
+		_context.Events.Add(item);
+		await _context.SaveChangesAsync();
+		return RedirectToAction(nameof(Manage));
+	}
+
+	[HttpGet]
+	[Authorize(Roles = RoleNames.Organizer)]
+	public async Task<IActionResult> Edit(int id)
+	{
+		var organizer = await _userManager.GetUserAsync(User);
+		if (organizer is null) return Challenge();
+		var item = await _context.Events.AsNoTracking().FirstOrDefaultAsync(e =>
+			e.Id == id && e.OrganizerId == organizer.Id && e.Status == EventStatus.Draft);
+		if (item is null) return EventNotFound();
+		var model = new EventInputModel
+		{
+			Title = item.Title,
+			Description = item.Description,
+			CategoryId = item.CategoryId,
+			Location = item.Location,
+			StartDateTime = item.StartDateTime,
+			EndDateTime = item.EndDateTime,
+			Capacity = item.Capacity
+		};
+		await PopulateCategoryOptionsAsync(model);
+		return View(model);
+	}
+
+	[HttpPost]
+	[Authorize(Roles = RoleNames.Organizer)]
+	[ValidateAntiForgeryToken]
+	public async Task<IActionResult> Edit(int id, EventInputModel model)
+	{
+		var organizer = await _userManager.GetUserAsync(User);
+		if (organizer is null) return Challenge();
+		var item = await _context.Events.FirstOrDefaultAsync(e =>
+			e.Id == id && e.OrganizerId == organizer.Id && e.Status == EventStatus.Draft);
+		if (item is null) return EventNotFound();
+		await ValidateCategoryAsync(model);
+		if (!ModelState.IsValid)
+		{
+			await PopulateCategoryOptionsAsync(model);
+			return View(model);
+		}
+		item.Title = model.Title.Trim();
+		item.Description = model.Description.Trim();
+		item.CategoryId = model.CategoryId!.Value;
+		item.Location = model.Location.Trim();
+		item.StartDateTime = model.StartDateTime!.Value;
+		item.EndDateTime = model.EndDateTime!.Value;
+		item.Capacity = model.Capacity!.Value;
+		await _context.SaveChangesAsync();
+		return RedirectToAction(nameof(Manage));
 	}
 }

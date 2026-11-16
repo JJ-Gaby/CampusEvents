@@ -108,3 +108,9 @@ deliverables are in [docs/ejercicios-leccion-03.md](docs/ejercicios-leccion-03.m
 Lesson 4 evidence and exercise deliverables are in
 [docs/requisitos-leccion-04.md](docs/requisitos-leccion-04.md) and
 [docs/ejercicios-leccion-04.md](docs/ejercicios-leccion-04.md).
+
+Lesson 5 adds Organizer-only Manage, Create and owned-Draft Edit forms with
+server-side validation, ownership checks and protected server-assigned fields.
+Its required evidence and exercises are in
+[docs/requisitos-leccion-05.md](docs/requisitos-leccion-05.md) and
+[docs/ejercicios-leccion-05.md](docs/ejercicios-leccion-05.md).
