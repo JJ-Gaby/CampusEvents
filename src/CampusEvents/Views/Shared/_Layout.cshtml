@@ -1,3 +1,5 @@
+@using CampusEvents.Security
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,19 +11,87 @@
 <body>
 	<header class="site-header">
 		<div class="site-shell site-header-inner">
-			<a class="site-brand" asp-controller="Home" asp-action="Index">CampusEvents</a>
+			<a class="site-brand"
+				asp-controller="Home"
+				asp-action="Index">CampusEvents</a>
 
 			<nav class="site-nav" aria-label="Primary navigation">
 				<ul class="site-nav-list">
-					<li><a class="site-nav-link" asp-controller="Home" asp-action="Index">Home</a></li>
-					<li><a class="site-nav-link" asp-controller="Events" asp-action="Index">Events</a></li>
-					<li><a class="site-nav-link" asp-controller="Home" asp-action="Privacy">Privacy</a></li>
+					<li>
+						<a class="site-nav-link"
+							asp-controller="Home"
+							asp-action="Index">Home</a>
+					</li>
+					<li>
+						<a class="site-nav-link"
+							asp-controller="Events"
+							asp-action="Index">Events</a>
+					</li>
+					<li>
+						<a class="site-nav-link"
+							asp-controller="Home"
+							asp-action="Privacy">Privacy</a>
+					</li>
+
+					@if (User.Identity?.IsAuthenticated == true)
+					{
+						<li>
+							<a class="site-nav-link"
+								asp-controller="Participant"
+								asp-action="Index">Participant Area</a>
+						</li>
+					}
+					else
+					{
+						<li>
+							<a class="site-nav-link"
+								asp-controller="Account"
+								asp-action="Register">Register</a>
+						</li>
+						<li>
+							<a class="site-nav-link"
+								asp-controller="Account"
+								asp-action="Login">Login</a>
+						</li>
+					}
 				</ul>
+
+				@if (User.Identity?.IsAuthenticated == true)
+				{
+					<div class="auth-status">
+						<span>@User.Identity.Name</span>
+
+						@if (User.IsInRole(RoleNames.Organizer))
+						{
+							<span class="role-label">Organizer</span>
+						}
+
+						@if (User.IsInRole(RoleNames.Administrator))
+						{
+							<span class="role-label">Administrator</span>
+						}
+
+						<form asp-controller="Account"
+								asp-action="Logout"
+								method="post"
+								asp-antiforgery="true"
+								class="logout-form">
+							<button type="submit"
+									class="link-button">
+								Logout
+							</button>
+						</form>
+					</div>
+				}
 			</nav>
 		</div>
 	</header>
 
 	<main class="site-shell page-content">
+		@if (TempData["AccountNotice"] is string accountNotice)
+		{
+			<p class="account-notice" role="status">@accountNotice</p>
+		}
 		@RenderBody()
 	</main>
 

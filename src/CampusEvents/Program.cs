@@ -1,23 +1,37 @@
 using CampusEvents.Data;
+using CampusEvents.Models;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-
-// Services registration
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllersWithViews();
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
 	?? throw new InvalidOperationException("Connection string 'DefaultConnection' was not found.");
 
 builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(connectionString));
 
-// Supply the system clock to time-dependent application code.
-builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+{
+	options.User.RequireUniqueEmail = true;
+	options.Password.RequiredLength = 8;
+	options.Password.RequireDigit = true;
+	options.Password.RequireLowercase = true;
+	options.Password.RequireUppercase = true;
+	options.Password.RequireNonAlphanumeric = false;
+	options.SignIn.RequireConfirmedAccount = false;
+})
+.AddEntityFrameworkStores<ApplicationDbContext>();
+
+builder.Services.ConfigureApplicationCookie(options =>
+{
+	options.LoginPath = "/Account/Login";
+	options.AccessDeniedPath = "/Account/AccessDenied";
+});
 
 var app = builder.Build();
-
-// Middleware configuration
 
 if (!app.Environment.IsDevelopment())
 {
@@ -28,24 +42,22 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+app.UseAuthentication();
 app.UseAuthorization();
 
-// Routes/endpoints mapping
-
 app.MapStaticAssets();
-app.MapControllerRoute(
-	name: "default",
-	pattern: "{controller=Home}/{action=Index}/{id?}")
-	.WithStaticAssets();
+app.MapControllerRoute(name: "default", pattern: "{controller=Home}/{action=Index}/{id?}").WithStaticAssets();
 
 if (app.Environment.IsDevelopment())
 {
 	using var scope = app.Services.CreateScope();
-	var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-	var timeProvider = scope.ServiceProvider.GetRequiredService<TimeProvider>();
-	await DbInitializer.SeedAsync(context, timeProvider);
+	var services = scope.ServiceProvider;
+	var context = services.GetRequiredService<ApplicationDbContext>();
+	await DbInitializer.SeedAsync(context, services.GetRequiredService<TimeProvider>());
+	await IdentitySeedData.SeedAsync(services, builder.Configuration);
 }
 
 app.Run();
 
+// Allows the existing integration-test project to host the real application.
 public partial class Program { }
