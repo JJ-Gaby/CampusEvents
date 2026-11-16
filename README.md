@@ -65,14 +65,25 @@ Open the URL printed by the application and select Events.
 The application serves Home, Privacy, a persisted public Events catalog and
 Published Event Details through MVC, with shared navigation and project-owned
 CSS. The catalog selects only Published future Events, ordered by start time
-and ID. Draft, Cancelled and missing Details requests return an HTML 404.
+and ID. It supports title/location search, Category filtering and bounded
+10/25/50 pagination. First/Previous/Next/Last links preserve criteria; the GET
+form restarts at page 1, and Clear preserves page size. Invalid explicit page
+sizes return an explanatory HTML 400. Draft, Cancelled and missing Details
+requests retain the inherited HTML 404 behavior.
 
 Development seeds three Categories, one organizer and the five lesson sample
 Events. The seed exercise adds a sixth row, Study Skills Workshop, so a fresh
 dataset has three public upcoming Events. Configured capacity is displayed;
-remaining registration availability, search, filtering, pagination and
-Cancelled direct-link visibility are deferred as the lesson specifies.
+remaining registration availability and Cancelled direct-link visibility
+remain deferred as the lessons specify. Lesson 3 does not change the models,
+schema, migrations or permanent Development seed definitions. Its 52 pagination
+practice Events were inserted and removed only in a separate private database;
+they are not part of normal startup.
 
-Verification evidence is recorded in [docs/traceability.md](docs/traceability.md).
+Verification evidence is recorded in [docs/lesson-02-traceability.md](docs/lesson-02-traceability.md).
 The required exercise diagram and explanations are in
 [docs/lesson02-exercises.md](docs/lesson02-exercises.md).
+
+Lesson 3 results, dataset boundaries and the commit reference are recorded in
+[docs/lesson-03-traceability.md](docs/lesson-03-traceability.md). Its exercise
+deliverables are in [docs/lesson03-exercises.md](docs/lesson03-exercises.md).
