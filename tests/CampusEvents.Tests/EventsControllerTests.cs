@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using CampusEvents.Controllers;
 using CampusEvents.Data;
 using CampusEvents.Models;
@@ -373,5 +374,51 @@ public class EventsControllerTests
 		Assert.Equal(10, model.PageSize);
 		Assert.Equal(2, model.TotalPages);
 		Assert.Equal(new[] { "Default Boundary 11", "Default Boundary 12" }, model.Events.Select(item => item.Title));
+	}
+
+	[Fact]
+	public async Task Details_PublishedEvent_ProvidesCurrentAvailabilityModel()
+	{
+		var clock = FixedClock();
+		var now = clock.GetLocalNow().DateTime;
+		await using var database = await IsolatedSqlServerDatabase.CreateAsync();
+		int publishedId;
+
+		await using (var arrange = database.CreateContext())
+		{
+			var category = new Category { Name = "Details Capacity" };
+			var organizer = new ApplicationUser { Id = "details-capacity-owner", DisplayName = "Events Team" };
+			var participant = new ApplicationUser { Id = "details-capacity-participant", DisplayName = "Participant" };
+			arrange.Categories.Add(category);
+			arrange.Users.AddRange(organizer, participant);
+			await arrange.SaveChangesAsync();
+
+			var eventItem = MakeEvent("Capacity Workshop", EventStatus.Published, now.AddDays(5),
+				category.Id, organizer.Id);
+			eventItem.Capacity = 2;
+			arrange.Events.Add(eventItem);
+			await arrange.SaveChangesAsync();
+			publishedId = eventItem.Id;
+
+			arrange.Registrations.Add(new Registration
+			{
+				UserId = participant.Id,
+				EventId = publishedId,
+				CreatedAt = now.AddHours(-1)
+			});
+			await arrange.SaveChangesAsync();
+		}
+
+		await using var verify = database.CreateContext();
+		var controller = CreateController(verify, clock);
+		controller.ControllerContext.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity());
+		var view = Assert.IsType<ViewResult>(await controller.Details(publishedId));
+		var model = Assert.IsType<EventDetailsViewModel>(view.Model);
+
+		Assert.Equal(publishedId, model.EventItem.Id);
+		Assert.Equal(EventStatus.Published, model.EventItem.Status);
+		Assert.Equal(1, model.CurrentRegistrationCount);
+		Assert.Equal(1, model.RemainingCapacity);
+		Assert.False(model.IsCurrentUserRegistered);
 	}
 }

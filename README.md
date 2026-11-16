@@ -72,13 +72,13 @@ Open the URL printed by the application and select Events.
 ## Current scope
 
 The application serves Home, Privacy, a persisted public Events catalog and
-Published Event Details through MVC, with shared navigation and project-owned
+Published and Cancelled Event Details through MVC, with shared navigation and project-owned
 CSS. The catalog selects only Published future Events, ordered by start time
 and ID. It supports title/location search, Category filtering and bounded
 10/25/50 pagination. First/Previous/Next/Last links preserve criteria; the GET
 form restarts at page 1, and Clear preserves page size. Invalid explicit page
-sizes return an explanatory HTML 400. Draft, Cancelled and missing Details
-requests retain the inherited HTML 404 behavior.
+sizes return an explanatory HTML 400. Draft and missing Details requests return
+HTML 404. Cancelled Details displays a cancellation notice through its known URL.
 
 Register and Login are available to anonymous visitors. Registration returns
 to Events with confirmation and does not sign in automatically. `/Participant`
@@ -90,9 +90,8 @@ assembly, not as a production application feature.
 
 Development seeds three Categories, one organizer and the five lesson sample
 Events. The seed exercise adds a sixth row, Study Skills Workshop, so a fresh
-dataset has three public upcoming Events. Configured capacity is displayed;
-remaining registration availability and Cancelled direct-link visibility
-remain deferred as the lessons specify. Lesson 3 does not change the models,
+dataset has three public upcoming Events. Details displays configured capacity,
+current Registrations and remaining availability. Lesson 3 does not change the models,
 schema, migrations or permanent Development seed definitions. Its 52 pagination
 practice Events were inserted and removed only in a separate private database;
 they are not part of normal startup.
@@ -114,3 +113,16 @@ server-side validation, ownership checks and protected server-assigned fields.
 Its required evidence and exercises are in
 [docs/requisitos-leccion-05.md](docs/requisitos-leccion-05.md) and
 [docs/ejercicios-leccion-05.md](docs/ejercicios-leccion-05.md).
+
+Lesson 6 adds guarded Publish/Cancel, Draft deletion confirmation, Published
+Edit and direct Cancelled Details. Evidence and required exercises are in
+[docs/requisitos-leccion-06.md](docs/requisitos-leccion-06.md) and
+[docs/ejercicios-leccion-06.md](docs/ejercicios-leccion-06.md).
+
+Lesson 7 adds current Participant Registrations, live availability, My
+Registrations and protected cancellation. Apply the new
+`AddParticipantRegistrations` migration with the database-update command above.
+Registration and Published Capacity Edit coordinate through SQL Server Event-row
+locks; Draft deletion checks current Registrations. Evidence and required
+exercises are in [docs/requisitos-leccion-07.md](docs/requisitos-leccion-07.md) and
+[docs/ejercicios-leccion-07.md](docs/ejercicios-leccion-07.md).

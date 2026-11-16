@@ -7,5 +7,16 @@
 <p>Signed in as <strong>@User.Identity?.Name</strong></p>
 
 <p>
-	You are authenticated and can access this protected page.
+	You are authenticated and can use Participant
+	registration features.
 </p>
+
+<div class="event-actions">
+	<a asp-controller="Events" asp-action="Index" class="button-primary">
+		Browse Events
+	</a>
+
+	<a asp-controller="Registrations" asp-action="Mine" class="button-secondary">
+		My Registrations
+	</a>
+</div>

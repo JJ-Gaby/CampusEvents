@@ -1,3 +1,4 @@
+using CampusEvents.ViewModels;
 using CampusEvents.Controllers;
 using CampusEvents.Models;
 using Microsoft.AspNetCore.Http;
@@ -29,7 +30,7 @@ public class EventDetailsAndIntegrityTests
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
         var view = Assert.IsType<ViewResult>(await controller.Details(eventId));
-        var model = Assert.IsType<Event>(view.Model);
+        var model = Assert.IsType<EventDetailsViewModel>(view.Model).EventItem;
         Assert.Equal(eventId, model.Id);
         Assert.Equal("Published Details Example", model.Title);
         Assert.Equal("Academic", model.Category.Name);

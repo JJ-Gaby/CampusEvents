@@ -348,7 +348,7 @@ public class AuthenticationHttpTests
 		var html = await response.Content.ReadAsStringAsync();
 		Assert.Contains("Signed in as", html);
 		Assert.Contains("<strong>" + ParticipantEmail + "</strong>", html);
-		Assert.Contains("You are authenticated and can access this protected page.", html);
+		Assert.Contains("You are authenticated and can use Participant", html);
 	}
 
 	[Fact]
